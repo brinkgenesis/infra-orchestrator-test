@@ -6,6 +6,7 @@ import {
   checkHealth,
   withTimeout,
   Bulkhead,
+  RateLimiter,
 } from './index';
 
 describe('computeBackoff', () => {
@@ -192,6 +193,41 @@ describe('Bulkhead', () => {
     expect(order).toEqual([1, 2]);
     expect(bh.getRunning()).toBe(0);
     expect(bh.getQueueLength()).toBe(0);
+  });
+});
+
+describe('RateLimiter', () => {
+  it('starts with full token bucket', () => {
+    const rl = new RateLimiter({ maxTokens: 10, refillRate: 5 });
+    expect(rl.getTokens()).toBeCloseTo(10, 0);
+  });
+
+  it('tryAcquire succeeds when tokens available', () => {
+    const rl = new RateLimiter({ maxTokens: 5, refillRate: 10 });
+    expect(rl.tryAcquire()).toBe(true);
+    expect(rl.tryAcquire(3)).toBe(true);
+    expect(rl.getTokens()).toBeCloseTo(1, 0);
+  });
+
+  it('tryAcquire fails when insufficient tokens', () => {
+    const rl = new RateLimiter({ maxTokens: 2, refillRate: 1 });
+    expect(rl.tryAcquire(3)).toBe(false);
+    expect(rl.getTokens()).toBeCloseTo(2, 0);
+  });
+
+  it('acquire waits and then succeeds', async () => {
+    const rl = new RateLimiter({ maxTokens: 1, refillRate: 100 });
+    rl.tryAcquire(1); // drain tokens
+    const start = Date.now();
+    await rl.acquire(1);
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeGreaterThanOrEqual(5);
+  });
+
+  it('does not exceed maxTokens after refill', async () => {
+    const rl = new RateLimiter({ maxTokens: 5, refillRate: 1000 });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(rl.getTokens()).toBeLessThanOrEqual(5);
   });
 });
 

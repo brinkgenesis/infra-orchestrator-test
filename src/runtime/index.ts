@@ -188,6 +188,58 @@ export class Bulkhead {
   }
 }
 
+export interface RateLimiterOptions {
+  maxTokens: number;
+  refillRate: number;
+}
+
+export class RateLimiter {
+  private tokens: number;
+  private readonly maxTokens: number;
+  private readonly refillRate: number;
+  private lastRefill: number;
+
+  constructor(opts: RateLimiterOptions) {
+    this.maxTokens = opts.maxTokens;
+    this.refillRate = opts.refillRate;
+    this.tokens = opts.maxTokens;
+    this.lastRefill = Date.now();
+  }
+
+  private refill(): void {
+    const now = Date.now();
+    const elapsed = now - this.lastRefill;
+    const newTokens = (elapsed / 1000) * this.refillRate;
+    this.tokens = Math.min(this.maxTokens, this.tokens + newTokens);
+    this.lastRefill = now;
+  }
+
+  getTokens(): number {
+    this.refill();
+    return this.tokens;
+  }
+
+  tryAcquire(count = 1): boolean {
+    this.refill();
+    if (this.tokens >= count) {
+      this.tokens -= count;
+      return true;
+    }
+    return false;
+  }
+
+  async acquire(count = 1): Promise<void> {
+    if (this.tryAcquire(count)) {
+      return;
+    }
+    const deficit = count - this.tokens;
+    const waitMs = (deficit / this.refillRate) * 1000;
+    await new Promise((r) => setTimeout(r, waitMs));
+    this.refill();
+    this.tokens -= count;
+  }
+}
+
 export async function checkHealth(
   service: string,
   probe: () => Promise<void>,
