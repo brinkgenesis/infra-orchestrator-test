@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getDevServerUrl, getBuildOutDir, isSourcemapEnabled, isHmrEnabled, createFrontendConfig, getDevServerConfig, getBuildConfig, validateFrontendConfig, resolveOutPath, formatDevBanner, getConfigSnapshot, frontendConfig } from './index';
+import { getDevServerUrl, getBuildOutDir, isSourcemapEnabled, isHmrEnabled, createFrontendConfig, getDevServerConfig, getBuildConfig, validateFrontendConfig, resolveOutPath, formatDevBanner, getConfigSnapshot, frontendConfig, createDevProxyConfig, createConfigFromEnv, mergeConfigs, getAssetPath } from './index';
 import type { FrontendConfig } from './index';
 
 describe('frontend config', () => {
@@ -183,5 +183,66 @@ describe('frontend config', () => {
     const parsed = JSON.parse(snapshot);
     expect(parsed.dev.port).toBe(3000);
     expect(parsed.build.outDir).toBe('dist');
+  });
+
+  it('createDevProxyConfig returns proxy config with defaults', () => {
+    const proxy = createDevProxyConfig('http://localhost:8080');
+    expect(proxy.target).toBe('http://localhost:8080');
+    expect(proxy.changeOrigin).toBe(true);
+    expect(proxy.pathRewrite).toEqual({ '/api': '/api' });
+  });
+
+  it('createDevProxyConfig accepts custom rewrites', () => {
+    const proxy = createDevProxyConfig('http://localhost:8080', { '/api': '/v2/api' });
+    expect(proxy.pathRewrite).toEqual({ '/api': '/v2/api' });
+  });
+
+  it('createConfigFromEnv uses defaults when env is empty', () => {
+    const cfg = createConfigFromEnv({});
+    expect(cfg.dev.port).toBe(3000);
+    expect(cfg.dev.hmr).toBe(true);
+    expect(cfg.build.outDir).toBe('dist');
+    expect(cfg.build.sourcemap).toBe(true);
+  });
+
+  it('createConfigFromEnv reads DEV_PORT from env', () => {
+    const cfg = createConfigFromEnv({ DEV_PORT: '4000' });
+    expect(cfg.dev.port).toBe(4000);
+  });
+
+  it('createConfigFromEnv falls back on invalid DEV_PORT', () => {
+    const cfg = createConfigFromEnv({ DEV_PORT: 'abc' });
+    expect(cfg.dev.port).toBe(3000);
+  });
+
+  it('createConfigFromEnv reads HMR=false', () => {
+    const cfg = createConfigFromEnv({ HMR: 'false' });
+    expect(cfg.dev.hmr).toBe(false);
+  });
+
+  it('createConfigFromEnv reads OUT_DIR and SOURCEMAP', () => {
+    const cfg = createConfigFromEnv({ OUT_DIR: 'build', SOURCEMAP: 'false' });
+    expect(cfg.build.outDir).toBe('build');
+    expect(cfg.build.sourcemap).toBe(false);
+  });
+
+  it('mergeConfigs merges two configs', () => {
+    const base: FrontendConfig = { dev: { port: 3000, hmr: true }, build: { outDir: 'dist', sourcemap: true } };
+    const result = mergeConfigs(base, { dev: { port: 5000 } });
+    expect(result.dev.port).toBe(5000);
+    expect(result.dev.hmr).toBe(true);
+    expect(result.build.outDir).toBe('dist');
+  });
+
+  it('getAssetPath inserts hash before extension', () => {
+    expect(getAssetPath('main.js', 'abc123')).toBe('dist/main.abc123.js');
+  });
+
+  it('getAssetPath handles nested paths', () => {
+    expect(getAssetPath('/assets/style.css', 'def456')).toBe('dist/assets/style.def456.css');
+  });
+
+  it('getAssetPath handles files without extension', () => {
+    expect(getAssetPath('LICENSE', 'aaa')).toBe('dist/LICENSE.aaa');
   });
 });
