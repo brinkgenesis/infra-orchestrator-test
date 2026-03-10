@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getDevServerUrl, getBuildOutDir, isSourcemapEnabled, frontendConfig } from './index';
+import { getDevServerUrl, getBuildOutDir, isSourcemapEnabled, isHmrEnabled, createFrontendConfig, frontendConfig } from './index';
 import type { FrontendConfig } from './index';
 
 describe('frontend config', () => {
@@ -45,5 +45,33 @@ describe('frontend config', () => {
       build: { outDir: 'dist', sourcemap: false },
     };
     expect(isSourcemapEnabled(custom)).toBe(false);
+  });
+
+  it('isHmrEnabled returns correct default', () => {
+    expect(isHmrEnabled()).toBe(true);
+  });
+
+  it('isHmrEnabled respects custom config', () => {
+    const custom: FrontendConfig = {
+      dev: { port: 3000, hmr: false },
+      build: { outDir: 'dist', sourcemap: true },
+    };
+    expect(isHmrEnabled(custom)).toBe(false);
+  });
+
+  it('createFrontendConfig returns defaults when no overrides', () => {
+    const cfg = createFrontendConfig();
+    expect(cfg.dev.port).toBe(3000);
+    expect(cfg.dev.hmr).toBe(true);
+    expect(cfg.build.outDir).toBe('dist');
+    expect(cfg.build.sourcemap).toBe(true);
+  });
+
+  it('createFrontendConfig merges partial overrides', () => {
+    const cfg = createFrontendConfig({ dev: { port: 4000 }, build: { sourcemap: false } });
+    expect(cfg.dev.port).toBe(4000);
+    expect(cfg.dev.hmr).toBe(true);
+    expect(cfg.build.outDir).toBe('dist');
+    expect(cfg.build.sourcemap).toBe(false);
   });
 });
