@@ -9,7 +9,9 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noEmit": true
+    "noEmit": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true
   },
   "include": ["*.ts", "src/**/*.ts"],
   "exclude": ["node_modules", "dist"]
