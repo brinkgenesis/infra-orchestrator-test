@@ -25,9 +25,39 @@ const DEFAULT_RETRY: RetryOptions = {
   maxDelayMs: 5000,
 };
 
-export function computeBackoff(attempt: number, opts: RetryOptions = DEFAULT_RETRY): number {
+export function computeBackoff(
+  attempt: number,
+  opts: RetryOptions = DEFAULT_RETRY,
+  jitter = false,
+): number {
   const delay = opts.baseDelayMs * Math.pow(2, attempt);
-  return Math.min(delay, opts.maxDelayMs);
+  const capped = Math.min(delay, opts.maxDelayMs);
+  if (!jitter) return capped;
+  // Full jitter: uniform random in [0, capped] to prevent thundering herd
+  return Math.floor(Math.random() * (capped + 1));
+}
+
+export class TimeoutError extends Error {
+  constructor(ms: number) {
+    super(`Operation timed out after ${ms}ms`);
+    this.name = 'TimeoutError';
+  }
+}
+
+export async function withTimeout<T>(
+  fn: () => Promise<T>,
+  ms: number,
+): Promise<T> {
+  if (ms <= 0) throw new RangeError('Timeout must be positive');
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new TimeoutError(ms)), ms);
+  });
+  try {
+    return await Promise.race([fn(), timeout]);
+  } finally {
+    clearTimeout(timer!);
+  }
 }
 
 export async function withRetry<T>(
@@ -99,6 +129,39 @@ export class CircuitBreaker {
       this.state = 'open';
     }
   }
+}
+
+// Runtime type guards and assertion helpers
+
+export function isNonNullable<T>(value: T): value is NonNullable<T> {
+  return value !== null && value !== undefined;
+}
+
+export function assertNonNullable<T>(
+  value: T,
+  label?: string,
+): asserts value is NonNullable<T> {
+  if (value === null || value === undefined) {
+    throw new Error(`Expected non-nullable value${label ? ` for ${label}` : ''}, got ${String(value)}`);
+  }
+}
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function assertType<T>(
+  value: unknown,
+  guard: (v: unknown) => v is T,
+  label?: string,
+): asserts value is T {
+  if (!guard(value)) {
+    throw new TypeError(`Type assertion failed${label ? ` for ${label}` : ''}`);
+  }
+}
+
+export function exhaustiveCheck(value: never): never {
+  throw new Error(`Unhandled case: ${String(value)}`);
 }
 
 export async function checkHealth(

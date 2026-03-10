@@ -2,8 +2,15 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   computeBackoff,
   withRetry,
+  withTimeout,
+  TimeoutError,
   CircuitBreaker,
   checkHealth,
+  isNonNullable,
+  assertNonNullable,
+  isRecord,
+  assertType,
+  exhaustiveCheck,
 } from './index';
 
 describe('computeBackoff', () => {
@@ -21,6 +28,15 @@ describe('computeBackoff', () => {
     const opts = { maxAttempts: 5, baseDelayMs: 50, maxDelayMs: 1000 };
     expect(computeBackoff(0, opts)).toBe(50);
     expect(computeBackoff(5, opts)).toBe(1000);
+  });
+
+  it('returns value in [0, capped] when jitter is enabled', () => {
+    const opts = { maxAttempts: 3, baseDelayMs: 100, maxDelayMs: 5000 };
+    for (let i = 0; i < 50; i++) {
+      const val = computeBackoff(0, opts, true);
+      expect(val).toBeGreaterThanOrEqual(0);
+      expect(val).toBeLessThanOrEqual(100);
+    }
   });
 });
 
@@ -92,6 +108,24 @@ describe('CircuitBreaker', () => {
     const result = await cb.execute(() => Promise.resolve('recovered'));
     expect(result).toBe('recovered');
     expect(cb.getState()).toBe('closed');
+  });
+});
+
+describe('withTimeout', () => {
+  it('resolves when fn completes before deadline', async () => {
+    const result = await withTimeout(() => Promise.resolve(42), 1000);
+    expect(result).toBe(42);
+  });
+
+  it('rejects with TimeoutError when fn exceeds deadline', async () => {
+    const slow = () => new Promise<string>((r) => setTimeout(() => r('late'), 500));
+    await expect(withTimeout(slow, 10)).rejects.toThrow(TimeoutError);
+    await expect(withTimeout(slow, 10)).rejects.toThrow('Operation timed out after 10ms');
+  });
+
+  it('throws RangeError for non-positive timeout', async () => {
+    await expect(withTimeout(() => Promise.resolve('x'), 0)).rejects.toThrow(RangeError);
+    await expect(withTimeout(() => Promise.resolve('x'), -1)).rejects.toThrow(RangeError);
   });
 });
 
