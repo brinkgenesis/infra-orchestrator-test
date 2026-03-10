@@ -14,7 +14,9 @@
     "noFallthroughCasesInSwitch": true,
     "exactOptionalPropertyTypes": true,
     "noImplicitOverride": true,
-    "noPropertyAccessFromIndexSignature": true
+    "noPropertyAccessFromIndexSignature": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
   },
   "include": ["*.ts", "src/**/*.ts"],
   "exclude": ["node_modules", "dist"]

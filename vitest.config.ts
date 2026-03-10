@@ -9,6 +9,13 @@ export default defineConfig({
     hookTimeout: 10000,
     teardownTimeout: 5000,
     retry: 0,
+    isolate: true,
+    pool: 'forks',
+    passWithNoTests: false,
+    typecheck: {
+      enabled: true,
+      tsconfig: './tsconfig.json',
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],

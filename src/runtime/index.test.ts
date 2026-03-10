@@ -129,6 +129,73 @@ describe('withTimeout', () => {
   });
 });
 
+describe('isNonNullable', () => {
+  it('returns true for defined values', () => {
+    expect(isNonNullable(0)).toBe(true);
+    expect(isNonNullable('')).toBe(true);
+    expect(isNonNullable(false)).toBe(true);
+    expect(isNonNullable({})).toBe(true);
+  });
+
+  it('returns false for null and undefined', () => {
+    expect(isNonNullable(null)).toBe(false);
+    expect(isNonNullable(undefined)).toBe(false);
+  });
+});
+
+describe('assertNonNullable', () => {
+  it('does not throw for defined values', () => {
+    expect(() => assertNonNullable(42)).not.toThrow();
+    expect(() => assertNonNullable('')).not.toThrow();
+  });
+
+  it('throws for null with label', () => {
+    expect(() => assertNonNullable(null, 'userId')).toThrow(
+      'Expected non-nullable value for userId, got null',
+    );
+  });
+
+  it('throws for undefined without label', () => {
+    expect(() => assertNonNullable(undefined)).toThrow(
+      'Expected non-nullable value, got undefined',
+    );
+  });
+});
+
+describe('isRecord', () => {
+  it('returns true for plain objects', () => {
+    expect(isRecord({})).toBe(true);
+    expect(isRecord({ key: 'val' })).toBe(true);
+  });
+
+  it('returns false for non-objects', () => {
+    expect(isRecord(null)).toBe(false);
+    expect(isRecord([])).toBe(false);
+    expect(isRecord('str')).toBe(false);
+    expect(isRecord(42)).toBe(false);
+  });
+});
+
+describe('assertType', () => {
+  it('passes when guard returns true', () => {
+    const isString = (v: unknown): v is string => typeof v === 'string';
+    expect(() => assertType('hello', isString)).not.toThrow();
+  });
+
+  it('throws when guard returns false', () => {
+    const isString = (v: unknown): v is string => typeof v === 'string';
+    expect(() => assertType(123, isString, 'name')).toThrow(
+      'Type assertion failed for name',
+    );
+  });
+});
+
+describe('exhaustiveCheck', () => {
+  it('throws for unhandled values', () => {
+    expect(() => exhaustiveCheck('unexpected' as never)).toThrow('Unhandled case: unexpected');
+  });
+});
+
 describe('checkHealth', () => {
   it('returns healthy status on success', async () => {
     const status = await checkHealth('test-svc', async () => {});
