@@ -12,9 +12,13 @@ import {
   createRateLimiter,
   formatRoute,
   isHealthy,
+  createMiddlewareConfig,
+  isOriginAllowed,
+  validateMiddlewareConfig,
   backendConfig,
+  middlewareConfig,
 } from './index';
-import type { BackendConfig } from './index';
+import type { BackendConfig, CorsConfig, MiddlewareConfig } from './index';
 
 describe('backend config', () => {
   it('exports a valid default config', () => {
