@@ -1,7 +1,7 @@
 import config from '../../frontend.config';
-import type { FrontendConfig } from '../../frontend.config';
+import type { FrontendConfig, DevProxyTarget } from '../../frontend.config';
 
-export type { FrontendConfig };
+export type { FrontendConfig, DevProxyTarget };
 
 export function getDevServerUrl(cfg: FrontendConfig = config): string {
   return `http://localhost:${cfg.dev.port}`;
