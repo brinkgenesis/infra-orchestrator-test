@@ -11,6 +11,7 @@ export interface RetryOptions {
   baseDelayMs: number;
   maxDelayMs: number;
   jitter?: boolean;
+  isRetryable?: (err: unknown) => boolean;
 }
 
 export interface CircuitBreakerOptions {
@@ -39,12 +40,18 @@ export async function withRetry<T>(
   fn: () => Promise<T>,
   opts: RetryOptions = DEFAULT_RETRY,
 ): Promise<T> {
+  if (opts.maxAttempts < 1) {
+    throw new Error('maxAttempts must be at least 1');
+  }
   let lastError: unknown;
   for (let attempt = 0; attempt < opts.maxAttempts; attempt++) {
     try {
       return await fn();
     } catch (err) {
       lastError = err;
+      if (opts.isRetryable && !opts.isRetryable(err)) {
+        throw err;
+      }
       if (attempt < opts.maxAttempts - 1) {
         await new Promise((r) => setTimeout(r, computeBackoff(attempt, opts)));
       }
@@ -139,6 +146,14 @@ export async function withTimeout<T>(
   });
 }
 
+export async function withRetryAndTimeout<T>(
+  fn: () => Promise<T>,
+  retryOpts: RetryOptions,
+  timeoutOpts: TimeoutOptions,
+): Promise<T> {
+  return withRetry(() => withTimeout(fn, timeoutOpts), retryOpts);
+}
+
 export class Bulkhead {
   private running = 0;
   private readonly queue: Array<() => void> = [];
@@ -163,14 +178,8 @@ export class Bulkhead {
       if (this.queue.length >= this.maxQueue) {
         throw new Error('Bulkhead queue is full');
       }
-      await new Promise<void>((resolve, reject) => {
-        this.queue.push(() => {
-          if (this.running < this.maxConcurrent) {
-            resolve();
-          } else {
-            reject(new Error('Bulkhead capacity exceeded'));
-          }
-        });
+      await new Promise<void>((resolve) => {
+        this.queue.push(resolve);
       });
     }
 
@@ -229,9 +238,12 @@ export class RateLimiter {
   }
 
   async acquire(count = 1): Promise<void> {
+    if (this.refillRate <= 0) {
+      throw new Error('Cannot acquire: refillRate must be greater than 0');
+    }
     while (!this.tryAcquire(count)) {
       const deficit = count - this.tokens;
-      const waitMs = (deficit / this.refillRate) * 1000;
+      const waitMs = Math.max(1, (deficit / this.refillRate) * 1000);
       await new Promise((r) => setTimeout(r, waitMs));
     }
   }
@@ -312,4 +324,24 @@ export async function checkHealth(
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+export interface AggregateHealthStatus {
+  healthy: boolean;
+  services: HealthStatus[];
+  totalLatencyMs: number;
+}
+
+export async function aggregateHealth(
+  checks: Array<{ service: string; probe: () => Promise<void> }>,
+): Promise<AggregateHealthStatus> {
+  const start = Date.now();
+  const services = await Promise.all(
+    checks.map(({ service, probe }) => checkHealth(service, probe)),
+  );
+  return {
+    healthy: services.every((s) => s.healthy),
+    services,
+    totalLatencyMs: Date.now() - start,
+  };
 }

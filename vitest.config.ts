@@ -11,6 +11,8 @@ export default defineConfig({
     retry: 0,
     passWithNoTests: false,
     restoreMocks: true,
+    pool: 'forks',
+    isolate: true,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
