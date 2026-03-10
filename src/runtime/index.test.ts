@@ -64,6 +64,20 @@ describe('withRetry', () => {
     ).rejects.toThrow('always fails');
     expect(fn).toHaveBeenCalledTimes(2);
   });
+
+  it('works with jitter enabled', async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new Error('fail'))
+      .mockResolvedValue('ok');
+    const result = await withRetry(fn, {
+      maxAttempts: 3,
+      baseDelayMs: 1,
+      maxDelayMs: 10,
+      jitter: true,
+    });
+    expect(result).toBe('ok');
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('CircuitBreaker', () => {
@@ -247,5 +261,21 @@ describe('checkHealth', () => {
     expect(status.healthy).toBe(false);
     expect(status.service).toBe('broken-svc');
     expect(status.error).toBe('connection refused');
+  });
+
+  it('handles non-Error thrown values', async () => {
+    const status = await checkHealth('string-err', async () => {
+      throw 'raw string error';
+    });
+    expect(status.healthy).toBe(false);
+    expect(status.error).toBe('raw string error');
+  });
+
+  it('measures latency accurately', async () => {
+    const status = await checkHealth('slow-svc', async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    expect(status.healthy).toBe(true);
+    expect(status.latencyMs).toBeGreaterThanOrEqual(15);
   });
 });
