@@ -6,8 +6,12 @@ import {
   getHealthCheckUrl,
   createConfigFromEnv,
   buildRoute,
+  buildRouteWithQuery,
   validateConfig,
   mergeConfig,
+  createRateLimiter,
+  formatRoute,
+  isHealthy,
   backendConfig,
 } from './index';
 import type { BackendConfig } from './index';
@@ -168,5 +172,117 @@ describe('mergeConfig', () => {
     expect(cfg.api.versioned).toBe(false);
     expect(cfg.api.basePath).toBe('/api');
     expect(cfg.server).toEqual(backendConfig.server);
+  });
+});
+
+describe('buildRouteWithQuery', () => {
+  it('appends query parameters to route', () => {
+    const url = buildRouteWithQuery(backendConfig, ['users'], { page: 1, limit: 20 });
+    expect(url).toBe('http://localhost:8080/api/v1/users?page=1&limit=20');
+  });
+
+  it('encodes special characters in query values', () => {
+    const url = buildRouteWithQuery(backendConfig, ['search'], { q: 'hello world' });
+    expect(url).toBe('http://localhost:8080/api/v1/search?q=hello%20world');
+  });
+
+  it('returns base route when query is empty', () => {
+    const url = buildRouteWithQuery(backendConfig, ['users'], {});
+    expect(url).toBe('http://localhost:8080/api/v1/users');
+  });
+
+  it('supports boolean query values', () => {
+    const url = buildRouteWithQuery(backendConfig, ['items'], { active: true });
+    expect(url).toBe('http://localhost:8080/api/v1/items?active=true');
+  });
+});
+
+describe('validateConfig edge cases', () => {
+  it('detects NaN port', () => {
+    const cfg: BackendConfig = {
+      server: { port: NaN, host: 'localhost' },
+      api: { basePath: '/api', versioned: true },
+    };
+    const errors = validateConfig(cfg);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('Invalid port');
+  });
+
+  it('detects Infinity port', () => {
+    const cfg: BackendConfig = {
+      server: { port: Infinity, host: 'localhost' },
+      api: { basePath: '/api', versioned: true },
+    };
+    const errors = validateConfig(cfg);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('Invalid port');
+  });
+
+  it('reports multiple errors at once', () => {
+    const cfg: BackendConfig = {
+      server: { port: -1, host: '' },
+      api: { basePath: 'no-slash', versioned: true },
+    };
+    const errors = validateConfig(cfg);
+    expect(errors).toHaveLength(3);
+  });
+});
+
+describe('createRateLimiter', () => {
+  it('allows requests within the limit', () => {
+    const limiter = createRateLimiter({ windowMs: 1000, maxRequests: 3 });
+    const r1 = limiter('client-1', 1000);
+    expect(r1.allowed).toBe(true);
+    expect(r1.remaining).toBe(2);
+  });
+
+  it('blocks requests exceeding the limit', () => {
+    const limiter = createRateLimiter({ windowMs: 1000, maxRequests: 2 });
+    limiter('client-1', 1000);
+    limiter('client-1', 1000);
+    const r3 = limiter('client-1', 1000);
+    expect(r3.allowed).toBe(false);
+    expect(r3.remaining).toBe(0);
+  });
+
+  it('resets after window expires', () => {
+    const limiter = createRateLimiter({ windowMs: 1000, maxRequests: 1 });
+    limiter('client-1', 1000);
+    const r2 = limiter('client-1', 1500);
+    expect(r2.allowed).toBe(false);
+    const r3 = limiter('client-1', 2001);
+    expect(r3.allowed).toBe(true);
+    expect(r3.remaining).toBe(0);
+  });
+
+  it('tracks clients independently', () => {
+    const limiter = createRateLimiter({ windowMs: 1000, maxRequests: 1 });
+    limiter('client-a', 1000);
+    const rb = limiter('client-b', 1000);
+    expect(rb.allowed).toBe(true);
+  });
+});
+
+describe('formatRoute', () => {
+  it('formats method and path', () => {
+    expect(formatRoute('get', '/api/users')).toBe('GET /api/users');
+  });
+
+  it('uppercases the method', () => {
+    expect(formatRoute('post', '/items')).toBe('POST /items');
+  });
+});
+
+describe('isHealthy', () => {
+  it('returns true for ok status', () => {
+    expect(isHealthy({ status: 'ok', timestamp: '', uptime: 0, version: '1.0.0' })).toBe(true);
+  });
+
+  it('returns false for degraded status', () => {
+    expect(isHealthy({ status: 'degraded', timestamp: '', uptime: 0, version: '1.0.0' })).toBe(false);
+  });
+
+  it('returns false for error status', () => {
+    expect(isHealthy({ status: 'error', timestamp: '', uptime: 0, version: '1.0.0' })).toBe(false);
   });
 });

@@ -78,7 +78,7 @@ export function buildRoute(cfg: BackendConfig, ...segments: string[]): string {
 
 export function validateConfig(cfg: BackendConfig): string[] {
   const errors: string[] = [];
-  if (cfg.server.port < 1 || cfg.server.port > 65535) {
+  if (!Number.isFinite(cfg.server.port) || cfg.server.port < 1 || cfg.server.port > 65535) {
     errors.push(`Invalid port: ${cfg.server.port}. Must be between 1 and 65535.`);
   }
   if (!cfg.server.host) {
@@ -139,6 +139,19 @@ export function createRateLimiter(config: RateLimitConfig) {
   };
 }
 
+export function buildRouteWithQuery(
+  cfg: BackendConfig,
+  segments: string[],
+  query: Record<string, string | number | boolean>,
+): string {
+  const base = buildRoute(cfg, ...segments);
+  const params = Object.entries(query)
+    .filter(([, v]) => v !== undefined && v !== '')
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+    .join('&');
+  return params ? `${base}?${params}` : base;
+}
+
 export function formatRoute(method: string, path: string): string {
   return `${method.toUpperCase()} ${path}`;
 }
@@ -147,4 +160,61 @@ export function isHealthy(health: HealthCheckResponse): boolean {
   return health.status === 'ok';
 }
 
-export { defaultConfig as backendConfig };
+export interface CorsConfig {
+  allowedOrigins: string[];
+  allowedMethods: string[];
+  allowCredentials: boolean;
+}
+
+export interface MiddlewareConfig {
+  cors: CorsConfig;
+  rateLimit: RateLimitConfig;
+  requestLogging: boolean;
+}
+
+const defaultMiddlewareConfig: MiddlewareConfig = {
+  cors: {
+    allowedOrigins: ['*'],
+    allowedMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+    allowCredentials: false,
+  },
+  rateLimit: {
+    windowMs: 60_000,
+    maxRequests: 100,
+  },
+  requestLogging: true,
+};
+
+export function createMiddlewareConfig(
+  overrides: Partial<MiddlewareConfig> = {}
+): MiddlewareConfig {
+  return {
+    cors: { ...defaultMiddlewareConfig.cors, ...overrides.cors },
+    rateLimit: { ...defaultMiddlewareConfig.rateLimit, ...overrides.rateLimit },
+    requestLogging: overrides.requestLogging ?? defaultMiddlewareConfig.requestLogging,
+  };
+}
+
+export function isOriginAllowed(cors: CorsConfig, origin: string): boolean {
+  if (cors.allowedOrigins.includes('*')) return true;
+  return cors.allowedOrigins.includes(origin);
+}
+
+export function validateMiddlewareConfig(cfg: MiddlewareConfig): string[] {
+  const errors: string[] = [];
+  if (cfg.cors.allowedOrigins.length === 0) {
+    errors.push('CORS allowedOrigins must not be empty.');
+  }
+  if (cfg.cors.allowedMethods.length === 0) {
+    errors.push('CORS allowedMethods must not be empty.');
+  }
+  if (cfg.rateLimit.windowMs <= 0) {
+    errors.push(`rateLimit windowMs must be positive. Got: ${cfg.rateLimit.windowMs}.`);
+  }
+  if (cfg.rateLimit.maxRequests <= 0) {
+    errors.push(`rateLimit maxRequests must be positive. Got: ${cfg.rateLimit.maxRequests}.`);
+  }
+  return errors;
+}
+
+export { defaultConfig as backendConfig, defaultMiddlewareConfig as middlewareConfig };
