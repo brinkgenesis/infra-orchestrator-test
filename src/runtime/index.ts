@@ -129,6 +129,12 @@ export class CircuitBreaker {
       this.state = 'open';
     }
   }
+
+  reset(): void {
+    this.state = 'closed';
+    this.failures = 0;
+    this.lastFailureTime = 0;
+  }
 }
 
 // Runtime type guards and assertion helpers
