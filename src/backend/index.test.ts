@@ -526,3 +526,170 @@ describe('createEndpointRegistry', () => {
     expect(registry.find('DELETE', '/nothing')).toBeUndefined();
   });
 });
+
+describe('HTTP_STATUS', () => {
+  it('contains standard status codes', () => {
+    expect(HTTP_STATUS.OK).toBe(200);
+    expect(HTTP_STATUS.CREATED).toBe(201);
+    expect(HTTP_STATUS.NO_CONTENT).toBe(204);
+    expect(HTTP_STATUS.BAD_REQUEST).toBe(400);
+    expect(HTTP_STATUS.UNAUTHORIZED).toBe(401);
+    expect(HTTP_STATUS.FORBIDDEN).toBe(403);
+    expect(HTTP_STATUS.NOT_FOUND).toBe(404);
+    expect(HTTP_STATUS.CONFLICT).toBe(409);
+    expect(HTTP_STATUS.RATE_LIMITED).toBe(429);
+    expect(HTTP_STATUS.INTERNAL_ERROR).toBe(500);
+    expect(HTTP_STATUS.SERVICE_UNAVAILABLE).toBe(503);
+  });
+});
+
+describe('createSuccessResponse', () => {
+  it('creates a basic success response with data', () => {
+    const res = createSuccessResponse({ id: 1, name: 'test' });
+    expect(res.data).toEqual({ id: 1, name: 'test' });
+    expect(res.requestId).toBeUndefined();
+    expect(res.meta).toBeUndefined();
+  });
+
+  it('includes requestId when provided', () => {
+    const res = createSuccessResponse('hello', 'req-456');
+    expect(res.data).toBe('hello');
+    expect(res.requestId).toBe('req-456');
+  });
+
+  it('includes meta when provided', () => {
+    const res = createSuccessResponse([1, 2], undefined, { cached: true });
+    expect(res.data).toEqual([1, 2]);
+    expect(res.meta).toEqual({ cached: true });
+    expect(res.requestId).toBeUndefined();
+  });
+});
+
+describe('createPaginatedResponse', () => {
+  it('creates a paginated response with correct pagination info', () => {
+    const res = createPaginatedResponse(['a', 'b'], 1, 10, 25);
+    expect(res.data).toEqual(['a', 'b']);
+    expect(res.pagination.page).toBe(1);
+    expect(res.pagination.pageSize).toBe(10);
+    expect(res.pagination.total).toBe(25);
+    expect(res.pagination.totalPages).toBe(3);
+  });
+
+  it('handles zero total', () => {
+    const res = createPaginatedResponse([], 1, 10, 0);
+    expect(res.data).toEqual([]);
+    expect(res.pagination.totalPages).toBe(0);
+  });
+
+  it('handles zero pageSize', () => {
+    const res = createPaginatedResponse([], 1, 0, 10);
+    expect(res.pagination.totalPages).toBe(0);
+  });
+
+  it('includes requestId when provided', () => {
+    const res = createPaginatedResponse([1], 1, 10, 1, 'req-pg');
+    expect(res.requestId).toBe('req-pg');
+  });
+
+  it('calculates totalPages correctly for exact division', () => {
+    const res = createPaginatedResponse([1, 2], 1, 5, 20);
+    expect(res.pagination.totalPages).toBe(4);
+  });
+});
+
+describe('validateRequest', () => {
+  const rules: ValidationRule[] = [
+    { field: 'name', check: isNonEmptyString, message: 'Name is required' },
+    { field: 'age', check: isPositiveNumber, message: 'Age must be positive' },
+  ];
+
+  it('returns valid for correct input', () => {
+    const result = validateRequest({ name: 'Alice', age: 30 }, rules);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('returns errors for missing fields', () => {
+    const result = validateRequest({}, rules);
+    expect(result.valid).toBe(false);
+    expect(result.errors).toHaveLength(2);
+  });
+
+  it('returns error for invalid field', () => {
+    const result = validateRequest({ name: '', age: 25 }, rules);
+    expect(result.valid).toBe(false);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]!.field).toBe('name');
+  });
+
+  it('returns valid with empty rules', () => {
+    const result = validateRequest({ anything: true }, []);
+    expect(result.valid).toBe(true);
+  });
+});
+
+describe('isNonEmptyString', () => {
+  it('returns true for non-empty string', () => {
+    expect(isNonEmptyString('hello')).toBe(true);
+  });
+
+  it('returns false for empty string', () => {
+    expect(isNonEmptyString('')).toBe(false);
+  });
+
+  it('returns false for whitespace-only string', () => {
+    expect(isNonEmptyString('   ')).toBe(false);
+  });
+
+  it('returns false for non-string', () => {
+    expect(isNonEmptyString(42)).toBe(false);
+    expect(isNonEmptyString(null)).toBe(false);
+    expect(isNonEmptyString(undefined)).toBe(false);
+  });
+});
+
+describe('isPositiveNumber', () => {
+  it('returns true for positive number', () => {
+    expect(isPositiveNumber(5)).toBe(true);
+    expect(isPositiveNumber(0.1)).toBe(true);
+  });
+
+  it('returns false for zero', () => {
+    expect(isPositiveNumber(0)).toBe(false);
+  });
+
+  it('returns false for negative number', () => {
+    expect(isPositiveNumber(-1)).toBe(false);
+  });
+
+  it('returns false for NaN and Infinity', () => {
+    expect(isPositiveNumber(NaN)).toBe(false);
+    expect(isPositiveNumber(Infinity)).toBe(false);
+  });
+
+  it('returns false for non-number', () => {
+    expect(isPositiveNumber('5')).toBe(false);
+  });
+});
+
+describe('parseIntParam', () => {
+  it('parses valid integer string', () => {
+    expect(parseIntParam('42', 0)).toBe(42);
+  });
+
+  it('returns fallback for undefined', () => {
+    expect(parseIntParam(undefined, 10)).toBe(10);
+  });
+
+  it('returns fallback for non-numeric string', () => {
+    expect(parseIntParam('abc', 5)).toBe(5);
+  });
+
+  it('parses negative numbers', () => {
+    expect(parseIntParam('-3', 0)).toBe(-3);
+  });
+
+  it('truncates decimal strings', () => {
+    expect(parseIntParam('3.9', 0)).toBe(3);
+  });
+});
