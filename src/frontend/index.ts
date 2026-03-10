@@ -23,15 +23,13 @@ export function createFrontendConfig(
   overrides: Partial<{
     dev: Partial<FrontendConfig['dev']>;
     build: Partial<FrontendConfig['build']>;
-    assets: Partial<NonNullable<FrontendConfig['assets']>>;
+    assets: Partial<FrontendConfig['assets']>;
   }> = {},
 ): FrontendConfig {
   return {
     dev: { ...config.dev, ...overrides.dev },
     build: { ...config.build, ...overrides.build },
-    ...(config.assets ?? overrides.assets
-      ? { assets: { ...config.assets, ...overrides.assets } as NonNullable<FrontendConfig['assets']> }
-      : {}),
+    assets: { ...config.assets, ...overrides.assets },
   };
 }
 
@@ -56,27 +54,27 @@ export function isDevMode(cfg: FrontendConfig = config): boolean {
 }
 
 export function isMinifyEnabled(cfg: FrontendConfig = config): boolean {
-  return cfg.build.minify ?? false;
+  return cfg.build.minify;
 }
 
 export function getBuildTarget(cfg: FrontendConfig = config): string {
-  return cfg.build.target ?? 'es2022';
+  return cfg.build.target;
 }
 
 export function getPublicDir(cfg: FrontendConfig = config): string {
-  return cfg.assets?.publicDir ?? 'public';
+  return cfg.assets.publicDir;
 }
 
 export function getAssetExtensions(cfg: FrontendConfig = config): readonly string[] {
-  return cfg.assets?.extensions ?? [];
+  return cfg.assets.extensions;
 }
 
 export function getProxyConfig(cfg: FrontendConfig = config): Record<string, DevProxyTarget> {
-  return cfg.dev.proxy ?? {};
+  return cfg.dev.proxy;
 }
 
 export function shouldOpenBrowser(cfg: FrontendConfig = config): boolean {
-  return cfg.dev.open ?? false;
+  return cfg.dev.open;
 }
 
 export interface ViteConfigOptions {
@@ -91,7 +89,6 @@ export function buildViteConfig(
 ): Record<string, unknown> {
   const { root = '.', base = '/', mode = 'development' } = options;
   const isDev = mode === 'development';
-  const proxy = cfg.dev.proxy ?? {};
 
   return {
     root,
@@ -99,10 +96,10 @@ export function buildViteConfig(
     mode,
     server: {
       port: cfg.dev.port,
-      open: cfg.dev.open ?? false,
+      open: cfg.dev.open,
       hmr: cfg.dev.hmr,
       proxy: Object.fromEntries(
-        Object.entries(proxy).map(([path, proxyTarget]) => [
+        Object.entries(cfg.dev.proxy).map(([path, proxyTarget]) => [
           path,
           { target: proxyTarget.target, changeOrigin: proxyTarget.changeOrigin ?? true },
         ]),
@@ -111,10 +108,10 @@ export function buildViteConfig(
     build: {
       outDir: cfg.build.outDir,
       sourcemap: cfg.build.sourcemap,
-      minify: isDev ? false : (cfg.build.minify ?? false),
-      target: cfg.build.target ?? 'es2022',
+      minify: isDev ? false : cfg.build.minify,
+      target: cfg.build.target,
     },
-    publicDir: cfg.assets?.publicDir ?? 'public',
+    publicDir: cfg.assets.publicDir,
   };
 }
 

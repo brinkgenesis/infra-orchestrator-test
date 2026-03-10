@@ -8,16 +8,16 @@ export interface FrontendConfig {
   dev: {
     port: number;
     hmr: boolean;
-    proxy?: Record<string, DevProxyTarget>;
-    open?: boolean;
+    proxy: Record<string, DevProxyTarget>;
+    open: boolean;
   };
   build: {
     outDir: string;
     sourcemap: boolean;
-    minify?: boolean;
-    target?: string;
+    minify: boolean;
+    target: string;
   };
-  assets?: {
+  assets: {
     publicDir: string;
     extensions: readonly string[];
   };
