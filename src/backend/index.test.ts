@@ -138,6 +138,23 @@ describe('validateConfig', () => {
     expect(errors[0]).toContain('Host must not be empty');
   });
 
+  it('detects NaN port from invalid env input', () => {
+    const cfg = createConfigFromEnv({ PORT: 'abc' });
+    const errors = validateConfig(cfg);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('Invalid port');
+  });
+
+  it('detects fractional port', () => {
+    const cfg: BackendConfig = {
+      server: { port: 80.5, host: 'localhost' },
+      api: { basePath: '/api', versioned: true },
+    };
+    const errors = validateConfig(cfg);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('Invalid port');
+  });
+
   it('detects basePath not starting with /', () => {
     const cfg: BackendConfig = {
       server: { port: 8080, host: 'localhost' },

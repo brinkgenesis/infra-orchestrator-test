@@ -91,7 +91,7 @@ export function buildRoute(cfg: BackendConfig, ...segments: string[]): string {
 
 export function validateConfig(cfg: BackendConfig): string[] {
   const errors: string[] = [];
-  if (cfg.server.port < 1 || cfg.server.port > 65535) {
+  if (!Number.isInteger(cfg.server.port) || cfg.server.port < 1 || cfg.server.port > 65535) {
     errors.push(`Invalid port: ${cfg.server.port}. Must be between 1 and 65535.`);
   }
   if (!cfg.server.host) {
