@@ -321,4 +321,30 @@ describe('frontend config', () => {
     expect(summary).toContain('sourcemaps on');
     expect(summary).toContain('dist');
   });
+
+  it('buildAssetManifest returns empty manifest for no entries', () => {
+    const manifest = buildAssetManifest([]);
+    expect(Object.keys(manifest)).toHaveLength(0);
+  });
+
+  it('buildAssetManifest respects custom config outDir', () => {
+    const cfg: FrontendConfig = { dev: { port: 3000, hmr: true }, build: { outDir: 'build', sourcemap: true } };
+    const manifest = buildAssetManifest([{ src: 'app.js', hash: 'xyz', isEntry: true }], cfg);
+    expect(manifest['app.js']!.file).toBe('build/app.xyz.js');
+  });
+
+  it('formatBuildSummary shows sourcemaps off when disabled', () => {
+    const cfg: FrontendConfig = { dev: { port: 3000, hmr: true }, build: { outDir: 'output', sourcemap: false } };
+    const manifest = buildAssetManifest([{ src: 'a.js', hash: 'x' }], cfg);
+    const summary = formatBuildSummary(manifest, cfg);
+    expect(summary).toContain('sourcemaps off');
+    expect(summary).toContain('-> output');
+  });
+
+  it('formatBuildSummary handles zero entries', () => {
+    const manifest = buildAssetManifest([]);
+    const summary = formatBuildSummary(manifest);
+    expect(summary).toContain('0 asset(s)');
+    expect(summary).toContain('0 entry point(s)');
+  });
 });
