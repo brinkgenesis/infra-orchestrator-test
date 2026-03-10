@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getDevServerUrl, getBuildOutDir, isSourcemapEnabled, isHmrEnabled, createFrontendConfig, getDevServerConfig, getBuildConfig, validateFrontendConfig, frontendConfig } from './index';
+import { getDevServerUrl, getBuildOutDir, isSourcemapEnabled, isHmrEnabled, createFrontendConfig, getDevServerConfig, getBuildConfig, validateFrontendConfig, resolveOutPath, formatDevBanner, getConfigSnapshot, frontendConfig } from './index';
 import type { FrontendConfig } from './index';
 
 describe('frontend config', () => {
@@ -154,5 +154,34 @@ describe('frontend config', () => {
     const errors = validateFrontendConfig(bad);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('Invalid port');
+  });
+
+  it('resolveOutPath joins outDir and filePath', () => {
+    expect(resolveOutPath('main.js')).toBe('dist/main.js');
+  });
+
+  it('resolveOutPath strips leading slashes from filePath', () => {
+    expect(resolveOutPath('/assets/style.css')).toBe('dist/assets/style.css');
+  });
+
+  it('resolveOutPath strips trailing slashes from outDir', () => {
+    const cfg: FrontendConfig = { dev: { port: 3000, hmr: true }, build: { outDir: 'build/', sourcemap: true } };
+    expect(resolveOutPath('index.html', cfg)).toBe('build/index.html');
+  });
+
+  it('formatDevBanner includes port and HMR status', () => {
+    expect(formatDevBanner()).toBe('Dev server: http://localhost:3000 | HMR: enabled');
+  });
+
+  it('formatDevBanner shows disabled when HMR is off', () => {
+    const cfg: FrontendConfig = { dev: { port: 4000, hmr: false }, build: { outDir: 'dist', sourcemap: true } };
+    expect(formatDevBanner(cfg)).toBe('Dev server: http://localhost:4000 | HMR: disabled');
+  });
+
+  it('getConfigSnapshot returns JSON string of config', () => {
+    const snapshot = getConfigSnapshot();
+    const parsed = JSON.parse(snapshot);
+    expect(parsed.dev.port).toBe(3000);
+    expect(parsed.build.outDir).toBe('dist');
   });
 });
