@@ -4,6 +4,8 @@ import {
   withRetry,
   CircuitBreaker,
   checkHealth,
+  withTimeout,
+  Bulkhead,
 } from './index';
 
 describe('computeBackoff', () => {
@@ -92,6 +94,79 @@ describe('CircuitBreaker', () => {
     const result = await cb.execute(() => Promise.resolve('recovered'));
     expect(result).toBe('recovered');
     expect(cb.getState()).toBe('closed');
+  });
+});
+
+describe('withTimeout', () => {
+  it('resolves if operation completes within timeout', async () => {
+    const result = await withTimeout(() => Promise.resolve('fast'), { timeoutMs: 100 });
+    expect(result).toBe('fast');
+  });
+
+  it('rejects if operation exceeds timeout', async () => {
+    await expect(
+      withTimeout(
+        () => new Promise((r) => setTimeout(r, 200)),
+        { timeoutMs: 10 },
+      ),
+    ).rejects.toThrow('Operation timed out after 10ms');
+  });
+
+  it('uses custom timeout message', async () => {
+    await expect(
+      withTimeout(
+        () => new Promise((r) => setTimeout(r, 200)),
+        { timeoutMs: 10, message: 'custom timeout' },
+      ),
+    ).rejects.toThrow('custom timeout');
+  });
+
+  it('propagates the original error if fn rejects before timeout', async () => {
+    await expect(
+      withTimeout(
+        () => Promise.reject(new Error('fn error')),
+        { timeoutMs: 1000 },
+      ),
+    ).rejects.toThrow('fn error');
+  });
+});
+
+describe('Bulkhead', () => {
+  it('allows execution under concurrency limit', async () => {
+    const bh = new Bulkhead(2);
+    const result = await bh.execute(() => Promise.resolve('ok'));
+    expect(result).toBe('ok');
+    expect(bh.getRunning()).toBe(0);
+  });
+
+  it('rejects when queue is full', async () => {
+    const bh = new Bulkhead(1, 0);
+    const blocker = new Promise<string>((resolve) => {
+      setTimeout(() => resolve('done'), 100);
+    });
+    const first = bh.execute(() => blocker);
+
+    await expect(bh.execute(() => Promise.resolve('x'))).rejects.toThrow('Bulkhead queue is full');
+    await first;
+  });
+
+  it('queues and processes tasks sequentially when at capacity', async () => {
+    const bh = new Bulkhead(1, 10);
+    const order: number[] = [];
+
+    const task = (id: number, ms: number) =>
+      bh.execute(
+        () =>
+          new Promise<void>((resolve) => {
+            order.push(id);
+            setTimeout(resolve, ms);
+          }),
+      );
+
+    await Promise.all([task(1, 10), task(2, 10)]);
+    expect(order).toEqual([1, 2]);
+    expect(bh.getRunning()).toBe(0);
+    expect(bh.getQueueLength()).toBe(0);
   });
 });
 

@@ -101,6 +101,82 @@ export class CircuitBreaker {
   }
 }
 
+export interface TimeoutOptions {
+  timeoutMs: number;
+  message?: string;
+}
+
+export async function withTimeout<T>(
+  fn: () => Promise<T>,
+  opts: TimeoutOptions,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(opts.message ?? `Operation timed out after ${opts.timeoutMs}ms`));
+    }, opts.timeoutMs);
+
+    fn().then(
+      (result) => {
+        clearTimeout(timer);
+        resolve(result);
+      },
+      (err: unknown) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
+export class Bulkhead {
+  private running = 0;
+  private readonly queue: Array<() => void> = [];
+  private readonly maxConcurrent: number;
+  private readonly maxQueue: number;
+
+  constructor(maxConcurrent: number, maxQueue = Infinity) {
+    this.maxConcurrent = maxConcurrent;
+    this.maxQueue = maxQueue;
+  }
+
+  getRunning(): number {
+    return this.running;
+  }
+
+  getQueueLength(): number {
+    return this.queue.length;
+  }
+
+  async execute<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.running >= this.maxConcurrent) {
+      if (this.queue.length >= this.maxQueue) {
+        throw new Error('Bulkhead queue is full');
+      }
+      await new Promise<void>((resolve, reject) => {
+        this.queue.push(() => {
+          if (this.running < this.maxConcurrent) {
+            resolve();
+          } else {
+            reject(new Error('Bulkhead capacity exceeded'));
+          }
+        });
+      });
+    }
+
+    this.running++;
+    try {
+      const result = await fn();
+      return result;
+    } finally {
+      this.running--;
+      const next = this.queue.shift();
+      if (next !== undefined) {
+        next();
+      }
+    }
+  }
+}
+
 export async function checkHealth(
   service: string,
   probe: () => Promise<void>,
