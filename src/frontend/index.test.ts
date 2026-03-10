@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getDevServerUrl, getBuildOutDir, isSourcemapEnabled, isHmrEnabled, createFrontendConfig, getPublicUrl, getAssetPublicPath, resolveAssetUrl, isDevMode, isMinifyEnabled, getBuildTarget, getPublicDir, getAssetExtensions, getProxyConfig, shouldOpenBrowser, buildViteConfig, frontendConfig } from './index';
+import { getDevServerUrl, getBuildOutDir, isSourcemapEnabled, isHmrEnabled, createFrontendConfig, getPublicUrl, getAssetPublicPath, resolveAssetUrl, isDevMode, isMinifyEnabled, getBuildTarget, getPublicDir, getAssetExtensions, getProxyConfig, shouldOpenBrowser, buildViteConfig, validateFrontendConfig, frontendConfig } from './index';
 import type { FrontendConfig } from './index';
 
 function makeConfig(overrides: {
@@ -202,5 +202,56 @@ describe('frontend config', () => {
   it('createFrontendConfig merges assets overrides', () => {
     const cfg = createFrontendConfig({ assets: { publicDir: 'static' } });
     expect(cfg.assets.publicDir).toBe('static');
+  });
+
+  describe('validateFrontendConfig', () => {
+    it('returns no errors for valid default config', () => {
+      expect(validateFrontendConfig()).toEqual([]);
+    });
+
+    it('returns no errors for valid custom config', () => {
+      expect(validateFrontendConfig(makeConfig())).toEqual([]);
+    });
+
+    it('detects invalid port (0)', () => {
+      const errors = validateFrontendConfig(makeConfig({ dev: { port: 0 } }));
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toContain('Invalid dev port');
+    });
+
+    it('detects invalid port (negative)', () => {
+      const errors = validateFrontendConfig(makeConfig({ dev: { port: -1 } } as never));
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toContain('Invalid dev port');
+    });
+
+    it('detects invalid port (too high)', () => {
+      const errors = validateFrontendConfig(makeConfig({ dev: { port: 70000 } }));
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toContain('Invalid dev port');
+    });
+
+    it('detects fractional port', () => {
+      const errors = validateFrontendConfig(makeConfig({ dev: { port: 3000.5 } }));
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toContain('Invalid dev port');
+    });
+
+    it('detects empty outDir', () => {
+      const errors = validateFrontendConfig(makeConfig({ build: { outDir: '  ' } }));
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toContain('outDir must not be empty');
+    });
+
+    it('detects invalid build target', () => {
+      const errors = validateFrontendConfig(makeConfig({ build: { target: 'es5' } }));
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toContain('Invalid build target');
+    });
+
+    it('collects multiple errors', () => {
+      const errors = validateFrontendConfig(makeConfig({ dev: { port: 0 }, build: { outDir: '', target: 'invalid' } }));
+      expect(errors).toHaveLength(3);
+    });
   });
 });

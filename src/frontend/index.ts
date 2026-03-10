@@ -115,4 +115,23 @@ export function buildViteConfig(
   };
 }
 
+export function validateFrontendConfig(cfg: FrontendConfig = config): string[] {
+  const errors: string[] = [];
+
+  if (!Number.isInteger(cfg.dev.port) || cfg.dev.port < 1 || cfg.dev.port > 65535) {
+    errors.push(`Invalid dev port: ${cfg.dev.port}. Must be an integer between 1 and 65535.`);
+  }
+
+  if (cfg.build.outDir.trim() === '') {
+    errors.push('Build outDir must not be empty.');
+  }
+
+  const validTargets = ['es2015', 'es2016', 'es2017', 'es2018', 'es2019', 'es2020', 'es2021', 'es2022', 'es2023', 'esnext'];
+  if (!validTargets.includes(cfg.build.target)) {
+    errors.push(`Invalid build target: ${cfg.build.target}. Must be one of: ${validTargets.join(', ')}.`);
+  }
+
+  return errors;
+}
+
 export { config as frontendConfig };
