@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
   getServerUrl,
   getApiUrl,
@@ -15,10 +15,17 @@ import {
   createMiddlewareConfig,
   isOriginAllowed,
   validateMiddlewareConfig,
+  createRequestContext,
+  resetRequestCounter,
+  createErrorResponse,
+  computeRetryDelay,
+  shouldRetry,
+  formatRequestLog,
+  createEndpointRegistry,
   backendConfig,
   middlewareConfig,
 } from './index';
-import type { BackendConfig, CorsConfig, MiddlewareConfig } from './index';
+import type { BackendConfig, CorsConfig, MiddlewareConfig, RetryConfig } from './index';
 
 describe('backend config', () => {
   it('exports a valid default config', () => {
@@ -379,5 +386,136 @@ describe('validateMiddlewareConfig', () => {
     const errors = validateMiddlewareConfig(cfg);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('maxRequests');
+  });
+});
+
+describe('createRequestContext', () => {
+  beforeEach(() => {
+    resetRequestCounter();
+  });
+
+  it('creates a context with uppercase method', () => {
+    const ctx = createRequestContext('get', '/api/users');
+    expect(ctx.method).toBe('GET');
+    expect(ctx.path).toBe('/api/users');
+    expect(ctx.requestId).toMatch(/^req-\d+-\d+$/);
+    expect(ctx.timestamp).toBeTruthy();
+    expect(ctx.clientIp).toBeUndefined();
+  });
+
+  it('includes clientIp when provided', () => {
+    const ctx = createRequestContext('post', '/api/items', '192.168.1.1');
+    expect(ctx.clientIp).toBe('192.168.1.1');
+  });
+
+  it('generates unique request IDs', () => {
+    const ctx1 = createRequestContext('get', '/a');
+    const ctx2 = createRequestContext('get', '/b');
+    expect(ctx1.requestId).not.toBe(ctx2.requestId);
+  });
+});
+
+describe('createErrorResponse', () => {
+  it('creates a basic error response', () => {
+    const res = createErrorResponse('NOT_FOUND', 'Resource not found');
+    expect(res.error.code).toBe('NOT_FOUND');
+    expect(res.error.message).toBe('Resource not found');
+    expect(res.requestId).toBeUndefined();
+    expect(res.error.details).toBeUndefined();
+  });
+
+  it('includes requestId when provided', () => {
+    const res = createErrorResponse('BAD_REQUEST', 'Invalid input', 'req-123');
+    expect(res.requestId).toBe('req-123');
+  });
+
+  it('includes details when provided', () => {
+    const res = createErrorResponse('VALIDATION', 'Failed', undefined, { field: 'email' });
+    expect(res.error.details).toEqual({ field: 'email' });
+    expect(res.requestId).toBeUndefined();
+  });
+});
+
+describe('retry utilities', () => {
+  const retryConfig: RetryConfig = {
+    maxRetries: 3,
+    baseDelayMs: 100,
+    maxDelayMs: 5000,
+  };
+
+  it('computeRetryDelay uses exponential backoff', () => {
+    expect(computeRetryDelay(0, retryConfig)).toBe(100);
+    expect(computeRetryDelay(1, retryConfig)).toBe(200);
+    expect(computeRetryDelay(2, retryConfig)).toBe(400);
+  });
+
+  it('computeRetryDelay caps at maxDelayMs', () => {
+    expect(computeRetryDelay(10, retryConfig)).toBe(5000);
+  });
+
+  it('computeRetryDelay returns 0 for negative attempt', () => {
+    expect(computeRetryDelay(-1, retryConfig)).toBe(0);
+  });
+
+  it('shouldRetry returns true when under max', () => {
+    expect(shouldRetry(0, retryConfig)).toBe(true);
+    expect(shouldRetry(2, retryConfig)).toBe(true);
+  });
+
+  it('shouldRetry returns false at or beyond max', () => {
+    expect(shouldRetry(3, retryConfig)).toBe(false);
+    expect(shouldRetry(4, retryConfig)).toBe(false);
+  });
+});
+
+describe('formatRequestLog', () => {
+  beforeEach(() => {
+    resetRequestCounter();
+  });
+
+  it('formats log without clientIp', () => {
+    const ctx = createRequestContext('get', '/api/test');
+    const log = formatRequestLog(ctx);
+    expect(log).toContain('GET /api/test');
+    expect(log).toContain(ctx.requestId);
+    expect(log).not.toContain('from');
+  });
+
+  it('formats log with clientIp', () => {
+    const ctx = createRequestContext('post', '/api/data', '10.0.0.1');
+    const log = formatRequestLog(ctx);
+    expect(log).toContain('POST /api/data');
+    expect(log).toContain('from 10.0.0.1');
+  });
+});
+
+describe('createEndpointRegistry', () => {
+  it('registers and lists endpoints', () => {
+    const registry = createEndpointRegistry();
+    registry.register('get', '/users', 'List users');
+    registry.register('post', '/users', 'Create user');
+    expect(registry.count()).toBe(2);
+    expect(registry.list()).toHaveLength(2);
+  });
+
+  it('normalizes method to uppercase and adds leading slash', () => {
+    const registry = createEndpointRegistry();
+    registry.register('get', 'items', 'List items');
+    const ep = registry.find('GET', '/items');
+    expect(ep).toBeDefined();
+    expect(ep!.method).toBe('GET');
+    expect(ep!.path).toBe('/items');
+  });
+
+  it('prevents duplicate registrations', () => {
+    const registry = createEndpointRegistry();
+    registry.register('get', '/users', 'List users');
+    registry.register('GET', '/users', 'List users again');
+    expect(registry.count()).toBe(1);
+  });
+
+  it('find returns undefined for missing endpoint', () => {
+    const registry = createEndpointRegistry();
+    expect(registry.find('DELETE', '/nothing')).toBeUndefined();
   });
 });
