@@ -9,6 +9,13 @@ export interface BackendConfig {
   };
 }
 
+export interface HealthCheckResponse {
+  status: 'ok' | 'degraded' | 'error';
+  timestamp: string;
+  uptime: number;
+  version: string;
+}
+
 const defaultConfig: BackendConfig = {
   server: {
     port: 8080,
@@ -20,6 +27,8 @@ const defaultConfig: BackendConfig = {
   },
 };
 
+const startTime = Date.now();
+
 export function getServerUrl(cfg: BackendConfig = defaultConfig): string {
   return `http://${cfg.server.host}:${cfg.server.port}`;
 }
@@ -29,6 +38,32 @@ export function getApiUrl(cfg: BackendConfig = defaultConfig): string {
   return cfg.api.versioned
     ? `${base}${cfg.api.basePath}/v1`
     : `${base}${cfg.api.basePath}`;
+}
+
+export function getHealthCheck(version = '1.0.0'): HealthCheckResponse {
+  return {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: Math.floor((Date.now() - startTime) / 1000),
+    version,
+  };
+}
+
+export function getHealthCheckUrl(cfg: BackendConfig = defaultConfig): string {
+  return `${getApiUrl(cfg)}/health`;
+}
+
+export function createConfigFromEnv(env: Record<string, string | undefined>): BackendConfig {
+  return {
+    server: {
+      port: env['PORT'] ? parseInt(env['PORT'], 10) : defaultConfig.server.port,
+      host: env['HOST'] ?? defaultConfig.server.host,
+    },
+    api: {
+      basePath: env['API_BASE_PATH'] ?? defaultConfig.api.basePath,
+      versioned: env['API_VERSIONED'] !== 'false',
+    },
+  };
 }
 
 export { defaultConfig as backendConfig };

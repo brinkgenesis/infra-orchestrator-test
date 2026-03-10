@@ -3,7 +3,7 @@ import { getServerUrl, getApiUrl, backendConfig } from './index';
 import type { BackendConfig } from './index';
 
 describe('backend config', () => {
-  it('exports a valid default config object', () => {
+  it('exports a valid default config', () => {
     expect(backendConfig).toBeDefined();
     expect(backendConfig.server.port).toBe(8080);
     expect(backendConfig.server.host).toBe('localhost');
@@ -30,8 +30,8 @@ describe('backend config', () => {
   it('getApiUrl returns unversioned URL when versioned is false', () => {
     const custom: BackendConfig = {
       server: { port: 8080, host: 'localhost' },
-      api: { basePath: '/rest', versioned: false },
+      api: { basePath: '/api', versioned: false },
     };
-    expect(getApiUrl(custom)).toBe('http://localhost:8080/rest');
+    expect(getApiUrl(custom)).toBe('http://localhost:8080/api');
   });
 });
