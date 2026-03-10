@@ -28,4 +28,27 @@ export function createFrontendConfig(
   };
 }
 
+export function getDevServerConfig(cfg: FrontendConfig = config): {
+  url: string;
+  port: number;
+  hmr: boolean;
+} {
+  return {
+    url: `http://localhost:${cfg.dev.port}`,
+    port: cfg.dev.port,
+    hmr: cfg.dev.hmr,
+  };
+}
+
+export function validateFrontendConfig(cfg: FrontendConfig): string[] {
+  const errors: string[] = [];
+  if (cfg.dev.port < 1 || cfg.dev.port > 65535) {
+    errors.push(`Invalid port: ${cfg.dev.port}. Must be between 1 and 65535.`);
+  }
+  if (!cfg.build.outDir || cfg.build.outDir.trim() === '') {
+    errors.push('Build output directory must not be empty.');
+  }
+  return errors;
+}
+
 export { config as frontendConfig };
