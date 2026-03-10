@@ -7,6 +7,7 @@ import {
   withTimeout,
   Bulkhead,
   RateLimiter,
+  GracefulShutdown,
 } from './index';
 
 describe('computeBackoff', () => {
@@ -238,6 +239,14 @@ describe('RateLimiter', () => {
     expect(elapsed).toBeGreaterThanOrEqual(5);
   });
 
+  it('acquire handles concurrent callers without going negative', async () => {
+    const rl = new RateLimiter({ maxTokens: 2, refillRate: 100 });
+    rl.tryAcquire(2); // drain tokens
+    const results = await Promise.all([rl.acquire(1), rl.acquire(1)]);
+    expect(results).toHaveLength(2);
+    expect(rl.getTokens()).toBeGreaterThanOrEqual(0);
+  });
+
   it('does not exceed maxTokens after refill', async () => {
     const rl = new RateLimiter({ maxTokens: 5, refillRate: 1000 });
     await new Promise((r) => setTimeout(r, 50));
@@ -277,5 +286,94 @@ describe('checkHealth', () => {
     });
     expect(status.healthy).toBe(true);
     expect(status.latencyMs).toBeGreaterThanOrEqual(15);
+  });
+});
+
+describe('GracefulShutdown', () => {
+  it('starts not shutting down', () => {
+    const gs = new GracefulShutdown();
+    expect(gs.getIsShuttingDown()).toBe(false);
+  });
+
+  it('runs registered handlers in reverse order', async () => {
+    const gs = new GracefulShutdown();
+    const order: string[] = [];
+    gs.register('first', () => { order.push('first'); });
+    gs.register('second', () => { order.push('second'); });
+    gs.register('third', () => { order.push('third'); });
+
+    const result = await gs.shutdown();
+    expect(result.success).toBe(true);
+    expect(result.errors).toHaveLength(0);
+    expect(order).toEqual(['third', 'second', 'first']);
+  });
+
+  it('collects errors from failing handlers', async () => {
+    const gs = new GracefulShutdown();
+    gs.register('good', () => {});
+    gs.register('bad', () => { throw new Error('cleanup failed'); });
+
+    const result = await gs.shutdown();
+    expect(result.success).toBe(false);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]!.name).toBe('bad');
+    expect(result.errors[0]!.error).toBe('cleanup failed');
+  });
+
+  it('prevents double shutdown', async () => {
+    const gs = new GracefulShutdown();
+    gs.register('slow', () => new Promise((r) => setTimeout(r, 50)));
+
+    const first = gs.shutdown();
+    const second = await gs.shutdown();
+    expect(second.success).toBe(false);
+    expect(second.errors[0]!.error).toBe('Shutdown already in progress');
+    await first;
+  });
+
+  it('unregisters handlers by name', async () => {
+    const gs = new GracefulShutdown();
+    const called: string[] = [];
+    gs.register('keep', () => { called.push('keep'); });
+    gs.register('remove', () => { called.push('remove'); });
+    gs.unregister('remove');
+
+    await gs.shutdown();
+    expect(called).toEqual(['keep']);
+  });
+
+  it('resets state completely', async () => {
+    const gs = new GracefulShutdown();
+    gs.register('handler', () => {});
+    await gs.shutdown();
+    expect(gs.getIsShuttingDown()).toBe(true);
+
+    gs.reset();
+    expect(gs.getIsShuttingDown()).toBe(false);
+
+    const result = await gs.shutdown();
+    expect(result.success).toBe(true);
+  });
+
+  it('times out if handlers take too long', async () => {
+    const gs = new GracefulShutdown();
+    gs.register('slow', () => new Promise((r) => setTimeout(r, 5000)));
+
+    const result = await gs.shutdown(50);
+    expect(result.success).toBe(false);
+    expect(result.errors.some((e) => e.error.includes('timed out'))).toBe(true);
+  });
+
+  it('handles async shutdown handlers', async () => {
+    const gs = new GracefulShutdown();
+    let cleaned = false;
+    gs.register('async-cleanup', async () => {
+      await new Promise((r) => setTimeout(r, 10));
+      cleaned = true;
+    });
+
+    const result = await gs.shutdown();
+    expect(result.success).toBe(true);
+    expect(cleaned).toBe(true);
   });
 });

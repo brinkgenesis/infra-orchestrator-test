@@ -229,14 +229,64 @@ export class RateLimiter {
   }
 
   async acquire(count = 1): Promise<void> {
-    if (this.tryAcquire(count)) {
-      return;
+    while (!this.tryAcquire(count)) {
+      const deficit = count - this.tokens;
+      const waitMs = (deficit / this.refillRate) * 1000;
+      await new Promise((r) => setTimeout(r, waitMs));
     }
-    const deficit = count - this.tokens;
-    const waitMs = (deficit / this.refillRate) * 1000;
-    await new Promise((r) => setTimeout(r, waitMs));
-    this.refill();
-    this.tokens -= count;
+  }
+}
+
+export type ShutdownHandler = () => Promise<void> | void;
+
+export class GracefulShutdown {
+  private handlers: Array<{ name: string; handler: ShutdownHandler }> = [];
+  private isShuttingDown = false;
+
+  register(name: string, handler: ShutdownHandler): void {
+    this.handlers.push({ name, handler });
+  }
+
+  unregister(name: string): void {
+    this.handlers = this.handlers.filter((h) => h.name !== name);
+  }
+
+  getIsShuttingDown(): boolean {
+    return this.isShuttingDown;
+  }
+
+  async shutdown(timeoutMs = 10000): Promise<{ success: boolean; errors: Array<{ name: string; error: string }> }> {
+    if (this.isShuttingDown) {
+      return { success: false, errors: [{ name: 'shutdown', error: 'Shutdown already in progress' }] };
+    }
+    this.isShuttingDown = true;
+    const errors: Array<{ name: string; error: string }> = [];
+
+    const shutdownPromise = (async () => {
+      for (const { name, handler } of [...this.handlers].reverse()) {
+        try {
+          await handler();
+        } catch (err) {
+          errors.push({ name, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+    })();
+
+    const result = await Promise.race([
+      shutdownPromise.then(() => 'done' as const),
+      new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), timeoutMs)),
+    ]);
+
+    if (result === 'timeout') {
+      errors.push({ name: 'shutdown', error: `Shutdown timed out after ${timeoutMs}ms` });
+    }
+
+    return { success: errors.length === 0, errors };
+  }
+
+  reset(): void {
+    this.handlers = [];
+    this.isShuttingDown = false;
   }
 }
 
