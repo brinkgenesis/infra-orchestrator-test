@@ -10,6 +10,7 @@ export interface RetryOptions {
   maxAttempts: number;
   baseDelayMs: number;
   maxDelayMs: number;
+  jitter?: boolean;
 }
 
 export interface CircuitBreakerOptions {
@@ -27,7 +28,11 @@ const DEFAULT_RETRY: RetryOptions = {
 
 export function computeBackoff(attempt: number, opts: RetryOptions = DEFAULT_RETRY): number {
   const delay = opts.baseDelayMs * Math.pow(2, attempt);
-  return Math.min(delay, opts.maxDelayMs);
+  const capped = Math.min(delay, opts.maxDelayMs);
+  if (opts.jitter === true) {
+    return Math.floor(capped * Math.random());
+  }
+  return capped;
 }
 
 export async function withRetry<T>(
@@ -98,6 +103,12 @@ export class CircuitBreaker {
     if (this.failures >= this.failureThreshold) {
       this.state = 'open';
     }
+  }
+
+  reset(): void {
+    this.state = 'closed';
+    this.failures = 0;
+    this.lastFailureTime = 0;
   }
 }
 

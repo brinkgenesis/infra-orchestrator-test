@@ -24,6 +24,19 @@ describe('computeBackoff', () => {
     expect(computeBackoff(0, opts)).toBe(50);
     expect(computeBackoff(5, opts)).toBe(1000);
   });
+
+  it('applies jitter when enabled', () => {
+    const opts = { maxAttempts: 3, baseDelayMs: 100, maxDelayMs: 5000, jitter: true as const };
+    const results = Array.from({ length: 20 }, () => computeBackoff(2, opts));
+    const base = 100 * Math.pow(2, 2); // 400
+    for (const r of results) {
+      expect(r).toBeGreaterThanOrEqual(0);
+      expect(r).toBeLessThan(base);
+    }
+    // With 20 samples, not all should be identical (probabilistic but safe)
+    const unique = new Set(results);
+    expect(unique.size).toBeGreaterThan(1);
+  });
 });
 
 describe('withRetry', () => {
@@ -94,6 +107,18 @@ describe('CircuitBreaker', () => {
     const result = await cb.execute(() => Promise.resolve('recovered'));
     expect(result).toBe('recovered');
     expect(cb.getState()).toBe('closed');
+  });
+
+  it('resets to closed state via reset()', async () => {
+    const cb = new CircuitBreaker({ failureThreshold: 1, resetTimeoutMs: 60000 });
+    await expect(cb.execute(() => Promise.reject(new Error('x')))).rejects.toThrow();
+    expect(cb.getState()).toBe('open');
+
+    cb.reset();
+    expect(cb.getState()).toBe('closed');
+
+    const result = await cb.execute(() => Promise.resolve('after reset'));
+    expect(result).toBe('after reset');
   });
 });
 
