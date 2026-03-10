@@ -300,4 +300,25 @@ describe('frontend config', () => {
     expect(isDevMode({ NODE_ENV: 'development' })).toBe(true);
     expect(isDevMode({ NODE_ENV: 'test' })).toBe(true);
   });
+
+  it('buildAssetManifest creates manifest from entries', () => {
+    const manifest = buildAssetManifest([
+      { src: 'main.js', hash: 'abc', isEntry: true },
+      { src: 'style.css', hash: 'def' },
+    ]);
+    expect(manifest['main.js']).toEqual({ src: 'main.js', file: 'dist/main.abc.js', isEntry: true });
+    expect(manifest['style.css']).toEqual({ src: 'style.css', file: 'dist/style.def.css' });
+  });
+
+  it('formatBuildSummary returns human-readable summary', () => {
+    const manifest = buildAssetManifest([
+      { src: 'main.js', hash: 'abc', isEntry: true },
+      { src: 'style.css', hash: 'def' },
+    ]);
+    const summary = formatBuildSummary(manifest);
+    expect(summary).toContain('2 asset(s)');
+    expect(summary).toContain('1 entry point(s)');
+    expect(summary).toContain('sourcemaps on');
+    expect(summary).toContain('dist');
+  });
 });
