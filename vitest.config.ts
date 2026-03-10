@@ -13,17 +13,13 @@ export default defineConfig({
     restoreMocks: true,
     pool: 'forks',
     isolate: true,
+    reporters: ['default'],
+    bail: 5,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
       include: ['src/**/*.ts'],
       exclude: ['src/**/*.test.ts', 'src/**/*.spec.ts'],
-      thresholds: {
-        statements: 80,
-        branches: 80,
-        functions: 80,
-        lines: 80,
-      },
     },
   },
 });

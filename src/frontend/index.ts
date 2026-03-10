@@ -1,7 +1,7 @@
-import config from '../../frontend.config';
-import type { FrontendConfig } from '../../frontend.config';
+import config, { createFrontendConfig } from '../../frontend.config';
+import type { FrontendConfig, DevConfig, BuildConfig } from '../../frontend.config';
 
-export type { FrontendConfig };
+export type { FrontendConfig, DevConfig, BuildConfig };
 
 export function getDevServerUrl(cfg: FrontendConfig = config): string {
   return `http://localhost:${cfg.dev.port}`;
@@ -19,13 +19,12 @@ export function isHmrEnabled(cfg: FrontendConfig = config): boolean {
   return cfg.dev.hmr;
 }
 
-export function createFrontendConfig(
-  overrides: Partial<{ dev: Partial<FrontendConfig['dev']>; build: Partial<FrontendConfig['build']> }> = {},
-): FrontendConfig {
-  return {
-    dev: { ...config.dev, ...overrides.dev },
-    build: { ...config.build, ...overrides.build },
-  };
+export function resolveFrontendConfig(overrides?: {
+  dev?: Partial<FrontendConfig['dev']>;
+  build?: Partial<FrontendConfig['build']>;
+}): FrontendConfig {
+  if (!overrides) return config;
+  return createFrontendConfig(overrides);
 }
 
 export function getDevServerConfig(cfg: FrontendConfig = config): {
@@ -102,10 +101,14 @@ export function createConfigFromEnv(env: Record<string, string | undefined>): Fr
     dev: {
       port: Number.isFinite(parsedPort) ? parsedPort : config.dev.port,
       hmr: env['HMR'] !== 'false',
+      open: config.dev.open,
+      proxy: { ...config.dev.proxy },
     },
     build: {
       outDir: env['OUT_DIR'] ?? config.build.outDir,
       sourcemap: env['SOURCEMAP'] !== 'false',
+      minify: config.build.minify,
+      target: config.build.target,
     },
   };
 }
@@ -185,4 +188,16 @@ export function formatBuildSummary(
   return `Build: ${count} asset(s), ${entryCount} entry point(s), sourcemaps ${smLabel} -> ${cfg.build.outDir}`;
 }
 
-export { config as frontendConfig };
+export function getProxyEntries(cfg: FrontendConfig = config): [string, string][] {
+  return Object.entries(cfg.dev.proxy);
+}
+
+export function getBuildTarget(cfg: FrontendConfig = config): string {
+  return cfg.build.target;
+}
+
+export function hasSourcemaps(cfg: FrontendConfig = config): boolean {
+  return cfg.build.sourcemap;
+}
+
+export { config as frontendConfig, createFrontendConfig };

@@ -1,6 +1,31 @@
 import { describe, it, expect } from 'vitest';
-import { getDevServerUrl, getBuildOutDir, isSourcemapEnabled, isHmrEnabled, createFrontendConfig, getDevServerConfig, getBuildConfig, validateFrontendConfig, resolveOutPath, formatDevBanner, getConfigSnapshot, frontendConfig, createDevProxyConfig, createConfigFromEnv, mergeConfigs, getAssetPath, getPublicUrl, validateDevProxyConfig, isDevMode, buildAssetManifest, formatBuildSummary } from './index';
-import type { FrontendConfig } from './index';
+import {
+  getDevServerUrl,
+  getBuildOutDir,
+  isSourcemapEnabled,
+  isHmrEnabled,
+  getDevServerConfig,
+  getBuildConfig,
+  validateFrontendConfig,
+  resolveOutPath,
+  formatDevBanner,
+  getConfigSnapshot,
+  frontendConfig,
+  createDevProxyConfig,
+  createConfigFromEnv,
+  mergeConfigs,
+  getAssetPath,
+  getPublicUrl,
+  validateDevProxyConfig,
+  isDevMode,
+  buildAssetManifest,
+  formatBuildSummary,
+  resolveFrontendConfig,
+  getProxyEntries,
+  getBuildTarget,
+  hasSourcemaps,
+  createFrontendConfig,
+} from './index';
 
 describe('frontend config', () => {
   it('exports a valid config object', () => {
@@ -16,10 +41,7 @@ describe('frontend config', () => {
   });
 
   it('getDevServerUrl respects custom config', () => {
-    const custom: FrontendConfig = {
-      dev: { port: 8080, hmr: false },
-      build: { outDir: 'build', sourcemap: false },
-    };
+    const custom = createFrontendConfig({ dev: { port: 8080, hmr: false } });
     expect(getDevServerUrl(custom)).toBe('http://localhost:8080');
   });
 
@@ -28,10 +50,7 @@ describe('frontend config', () => {
   });
 
   it('getBuildOutDir respects custom config', () => {
-    const custom: FrontendConfig = {
-      dev: { port: 3000, hmr: true },
-      build: { outDir: 'build', sourcemap: false },
-    };
+    const custom = createFrontendConfig({ build: { outDir: 'build' } });
     expect(getBuildOutDir(custom)).toBe('build');
   });
 
@@ -40,10 +59,7 @@ describe('frontend config', () => {
   });
 
   it('isSourcemapEnabled respects custom config', () => {
-    const custom: FrontendConfig = {
-      dev: { port: 3000, hmr: true },
-      build: { outDir: 'dist', sourcemap: false },
-    };
+    const custom = createFrontendConfig({ build: { sourcemap: false } });
     expect(isSourcemapEnabled(custom)).toBe(false);
   });
 
@@ -52,10 +68,7 @@ describe('frontend config', () => {
   });
 
   it('isHmrEnabled respects custom config', () => {
-    const custom: FrontendConfig = {
-      dev: { port: 3000, hmr: false },
-      build: { outDir: 'dist', sourcemap: true },
-    };
+    const custom = createFrontendConfig({ dev: { hmr: false } });
     expect(isHmrEnabled(custom)).toBe(false);
   });
 
@@ -83,10 +96,7 @@ describe('frontend config', () => {
   });
 
   it('getDevServerConfig respects custom config', () => {
-    const custom: FrontendConfig = {
-      dev: { port: 9000, hmr: false },
-      build: { outDir: 'dist', sourcemap: true },
-    };
+    const custom = createFrontendConfig({ dev: { port: 9000, hmr: false } });
     const result = getDevServerConfig(custom);
     expect(result.url).toBe('http://localhost:9000');
     expect(result.port).toBe(9000);
@@ -100,10 +110,7 @@ describe('frontend config', () => {
   });
 
   it('getBuildConfig respects custom config', () => {
-    const custom: FrontendConfig = {
-      dev: { port: 3000, hmr: true },
-      build: { outDir: 'output', sourcemap: false },
-    };
+    const custom = createFrontendConfig({ build: { outDir: 'output', sourcemap: false } });
     const result = getBuildConfig(custom);
     expect(result.outDir).toBe('output');
     expect(result.sourcemap).toBe(false);
@@ -114,43 +121,34 @@ describe('frontend config', () => {
   });
 
   it('validateFrontendConfig catches invalid port', () => {
-    const bad: FrontendConfig = {
-      dev: { port: 0, hmr: true },
-      build: { outDir: 'dist', sourcemap: true },
-    };
+    const bad = createFrontendConfig({ dev: { port: 0 } });
     const errors = validateFrontendConfig(bad);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('Invalid port');
   });
 
   it('validateFrontendConfig catches empty outDir', () => {
-    const bad: FrontendConfig = {
-      dev: { port: 3000, hmr: true },
-      build: { outDir: '', sourcemap: true },
-    };
+    const bad = createFrontendConfig({ build: { outDir: '' } });
     const errors = validateFrontendConfig(bad);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('output directory');
   });
 
   it('validateFrontendConfig catches multiple errors', () => {
-    const bad: FrontendConfig = {
-      dev: { port: 99999, hmr: true },
-      build: { outDir: '  ', sourcemap: true },
-    };
+    const bad = createFrontendConfig({ dev: { port: 99999 }, build: { outDir: '  ' } });
     const errors = validateFrontendConfig(bad);
     expect(errors).toHaveLength(2);
   });
 
   it('validateFrontendConfig accepts boundary ports 1 and 65535', () => {
-    const low: FrontendConfig = { dev: { port: 1, hmr: true }, build: { outDir: 'dist', sourcemap: true } };
-    const high: FrontendConfig = { dev: { port: 65535, hmr: true }, build: { outDir: 'dist', sourcemap: true } };
+    const low = createFrontendConfig({ dev: { port: 1 } });
+    const high = createFrontendConfig({ dev: { port: 65535 } });
     expect(validateFrontendConfig(low)).toEqual([]);
     expect(validateFrontendConfig(high)).toEqual([]);
   });
 
   it('validateFrontendConfig rejects negative port', () => {
-    const bad: FrontendConfig = { dev: { port: -1, hmr: true }, build: { outDir: 'dist', sourcemap: true } };
+    const bad = createFrontendConfig({ dev: { port: -1 } });
     const errors = validateFrontendConfig(bad);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('Invalid port');
@@ -165,7 +163,7 @@ describe('frontend config', () => {
   });
 
   it('resolveOutPath strips trailing slashes from outDir', () => {
-    const cfg: FrontendConfig = { dev: { port: 3000, hmr: true }, build: { outDir: 'build/', sourcemap: true } };
+    const cfg = createFrontendConfig({ build: { outDir: 'build/' } });
     expect(resolveOutPath('index.html', cfg)).toBe('build/index.html');
   });
 
@@ -174,7 +172,7 @@ describe('frontend config', () => {
   });
 
   it('formatDevBanner shows disabled when HMR is off', () => {
-    const cfg: FrontendConfig = { dev: { port: 4000, hmr: false }, build: { outDir: 'dist', sourcemap: true } };
+    const cfg = createFrontendConfig({ dev: { port: 4000, hmr: false } });
     expect(formatDevBanner(cfg)).toBe('Dev server: http://localhost:4000 | HMR: disabled');
   });
 
@@ -227,7 +225,7 @@ describe('frontend config', () => {
   });
 
   it('mergeConfigs merges two configs', () => {
-    const base: FrontendConfig = { dev: { port: 3000, hmr: true }, build: { outDir: 'dist', sourcemap: true } };
+    const base = createFrontendConfig();
     const result = mergeConfigs(base, { dev: { port: 5000 } });
     expect(result.dev.port).toBe(5000);
     expect(result.dev.hmr).toBe(true);
@@ -247,7 +245,7 @@ describe('frontend config', () => {
   });
 
   it('validateFrontendConfig rejects NaN port', () => {
-    const bad: FrontendConfig = { dev: { port: NaN, hmr: true }, build: { outDir: 'dist', sourcemap: true } };
+    const bad = createFrontendConfig({ dev: { port: NaN } });
     const errors = validateFrontendConfig(bad);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('Invalid port');
@@ -262,7 +260,7 @@ describe('frontend config', () => {
   });
 
   it('getPublicUrl respects custom config', () => {
-    const cfg: FrontendConfig = { dev: { port: 3000, hmr: true }, build: { outDir: 'build', sourcemap: true } };
+    const cfg = createFrontendConfig({ build: { outDir: 'build' } });
     expect(getPublicUrl('/cdn', cfg)).toBe('/cdn/build');
   });
 
@@ -328,13 +326,13 @@ describe('frontend config', () => {
   });
 
   it('buildAssetManifest respects custom config outDir', () => {
-    const cfg: FrontendConfig = { dev: { port: 3000, hmr: true }, build: { outDir: 'build', sourcemap: true } };
+    const cfg = createFrontendConfig({ build: { outDir: 'build' } });
     const manifest = buildAssetManifest([{ src: 'app.js', hash: 'xyz', isEntry: true }], cfg);
     expect(manifest['app.js']!.file).toBe('build/app.xyz.js');
   });
 
   it('formatBuildSummary shows sourcemaps off when disabled', () => {
-    const cfg: FrontendConfig = { dev: { port: 3000, hmr: true }, build: { outDir: 'output', sourcemap: false } };
+    const cfg = createFrontendConfig({ build: { outDir: 'output', sourcemap: false } });
     const manifest = buildAssetManifest([{ src: 'a.js', hash: 'x' }], cfg);
     const summary = formatBuildSummary(manifest, cfg);
     expect(summary).toContain('sourcemaps off');
@@ -346,5 +344,75 @@ describe('frontend config', () => {
     const summary = formatBuildSummary(manifest);
     expect(summary).toContain('0 asset(s)');
     expect(summary).toContain('0 entry point(s)');
+  });
+});
+
+describe('frontend', () => {
+  it('returns default dev server URL', () => {
+    expect(getDevServerUrl()).toBe('http://localhost:3000');
+  });
+
+  it('uses custom port from config', () => {
+    const url = getDevServerUrl(
+      createFrontendConfig({ dev: { port: 8080, hmr: true } })
+    );
+    expect(url).toBe('http://localhost:8080');
+  });
+
+  it('exports frontend config with expected defaults', () => {
+    expect(frontendConfig.dev.hmr).toBe(true);
+    expect(frontendConfig.dev.open).toBe(false);
+    expect(frontendConfig.build.outDir).toBe('dist');
+    expect(frontendConfig.build.minify).toBe(true);
+  });
+
+  it('resolves config with partial overrides', () => {
+    const resolved = resolveFrontendConfig({ dev: { port: 4000 } });
+    expect(resolved.dev.port).toBe(4000);
+    expect(resolved.dev.hmr).toBe(true);
+    expect(resolved.build.outDir).toBe('dist');
+  });
+
+  it('returns default config when no overrides provided', () => {
+    const resolved = resolveFrontendConfig();
+    expect(resolved).toBe(frontendConfig);
+  });
+});
+
+describe('frontend DX utilities', () => {
+  it('isHmrEnabled returns true by default', () => {
+    expect(isHmrEnabled()).toBe(true);
+  });
+
+  it('isHmrEnabled returns false when HMR is disabled', () => {
+    const cfg = createFrontendConfig({ dev: { hmr: false } });
+    expect(isHmrEnabled(cfg)).toBe(false);
+  });
+
+  it('getProxyEntries returns empty array by default', () => {
+    expect(getProxyEntries()).toEqual([]);
+  });
+
+  it('getProxyEntries returns configured proxies', () => {
+    const cfg = createFrontendConfig({ dev: { proxy: { '/api': 'http://localhost:4000' } } });
+    expect(getProxyEntries(cfg)).toEqual([['/api', 'http://localhost:4000']]);
+  });
+
+  it('getBuildTarget returns ES2022 by default', () => {
+    expect(getBuildTarget()).toBe('ES2022');
+  });
+
+  it('getBuildTarget returns custom target', () => {
+    const cfg = createFrontendConfig({ build: { target: 'ES2020' } });
+    expect(getBuildTarget(cfg)).toBe('ES2020');
+  });
+
+  it('hasSourcemaps returns true by default', () => {
+    expect(hasSourcemaps()).toBe(true);
+  });
+
+  it('hasSourcemaps returns false when disabled', () => {
+    const cfg = createFrontendConfig({ build: { sourcemap: false } });
+    expect(hasSourcemaps(cfg)).toBe(false);
   });
 });
