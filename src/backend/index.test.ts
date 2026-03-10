@@ -8,8 +8,13 @@ import {
   buildRoute,
   validateConfig,
   backendConfig,
+  getCorsConfig,
+  getRateLimitConfig,
+  createRouteNamespace,
+  createRequestContext,
+  mergeConfig,
 } from './index';
-import type { BackendConfig } from './index';
+import type { BackendConfig, CorsConfig, RateLimitConfig } from './index';
 
 describe('backend config', () => {
   it('exports a valid default config', () => {
@@ -141,5 +146,107 @@ describe('validateConfig', () => {
     const errors = validateConfig(cfg);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('basePath must start with');
+  });
+});
+
+describe('getCorsConfig', () => {
+  it('returns default CORS config when none specified', () => {
+    const cors = getCorsConfig(backendConfig);
+    expect(cors.allowedOrigins).toEqual(['*']);
+    expect(cors.allowedMethods).toContain('GET');
+    expect(cors.allowedMethods).toContain('POST');
+    expect(cors.allowedHeaders).toContain('Content-Type');
+    expect(cors.maxAge).toBe(86400);
+  });
+
+  it('returns custom CORS config when provided', () => {
+    const custom: CorsConfig = {
+      allowedOrigins: ['https://example.com'],
+      allowedMethods: ['GET'],
+      allowedHeaders: ['X-Custom'],
+      maxAge: 3600,
+    };
+    const cfg: BackendConfig = {
+      ...backendConfig,
+      cors: custom,
+    };
+    const cors = getCorsConfig(cfg);
+    expect(cors.allowedOrigins).toEqual(['https://example.com']);
+    expect(cors.maxAge).toBe(3600);
+  });
+});
+
+describe('getRateLimitConfig', () => {
+  it('returns default rate limit config when none specified', () => {
+    const rl = getRateLimitConfig(backendConfig);
+    expect(rl.windowMs).toBe(60_000);
+    expect(rl.maxRequests).toBe(100);
+  });
+
+  it('returns custom rate limit config when provided', () => {
+    const custom: RateLimitConfig = { windowMs: 30_000, maxRequests: 50 };
+    const cfg: BackendConfig = { ...backendConfig, rateLimit: custom };
+    const rl = getRateLimitConfig(cfg);
+    expect(rl.windowMs).toBe(30_000);
+    expect(rl.maxRequests).toBe(50);
+  });
+});
+
+describe('createRouteNamespace', () => {
+  it('creates a namespace with prefixed routes', () => {
+    const ns = createRouteNamespace(backendConfig, 'users', ['list', 'create']);
+    expect(ns.prefix).toBe('users');
+    expect(ns.routes).toHaveLength(2);
+    expect(ns.routes[0]).toBe('http://localhost:8080/api/v1/users/list');
+    expect(ns.routes[1]).toBe('http://localhost:8080/api/v1/users/create');
+  });
+
+  it('strips slashes from prefix and routes', () => {
+    const ns = createRouteNamespace(backendConfig, '/admin/', ['/dashboard/']);
+    expect(ns.prefix).toBe('admin');
+    expect(ns.routes[0]).toBe('http://localhost:8080/api/v1/admin/dashboard');
+  });
+});
+
+describe('createRequestContext', () => {
+  it('creates a request context with correct fields', () => {
+    const ctx = createRequestContext('/api/users', 'get');
+    expect(ctx.requestId).toMatch(/^req_[a-z0-9]{16}$/);
+    expect(ctx.path).toBe('/api/users');
+    expect(ctx.method).toBe('GET');
+    expect(ctx.timestamp).toBeTruthy();
+  });
+
+  it('generates unique request IDs', () => {
+    const ctx1 = createRequestContext('/a', 'get');
+    const ctx2 = createRequestContext('/b', 'post');
+    expect(ctx1.requestId).not.toBe(ctx2.requestId);
+  });
+});
+
+describe('mergeConfig', () => {
+  it('merges server overrides', () => {
+    const merged = mergeConfig(backendConfig, { server: { port: 9090, host: '0.0.0.0' } });
+    expect(merged.server.port).toBe(9090);
+    expect(merged.server.host).toBe('0.0.0.0');
+    expect(merged.api.basePath).toBe('/api');
+  });
+
+  it('merges api overrides', () => {
+    const merged = mergeConfig(backendConfig, { api: { basePath: '/v2', versioned: false } });
+    expect(merged.api.basePath).toBe('/v2');
+    expect(merged.api.versioned).toBe(false);
+    expect(merged.server.port).toBe(8080);
+  });
+
+  it('merges cors and rateLimit overrides', () => {
+    const cors: CorsConfig = {
+      allowedOrigins: ['https://app.com'],
+      allowedMethods: ['GET'],
+      allowedHeaders: ['Authorization'],
+      maxAge: 1800,
+    };
+    const merged = mergeConfig(backendConfig, { cors });
+    expect(merged.cors).toEqual(cors);
   });
 });

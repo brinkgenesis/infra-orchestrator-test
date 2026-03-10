@@ -1,3 +1,15 @@
+export interface CorsConfig {
+  allowedOrigins: string[];
+  allowedMethods: string[];
+  allowedHeaders: string[];
+  maxAge: number;
+}
+
+export interface RateLimitConfig {
+  windowMs: number;
+  maxRequests: number;
+}
+
 export interface BackendConfig {
   server: {
     port: number;
@@ -7,6 +19,8 @@ export interface BackendConfig {
     basePath: string;
     versioned: boolean;
   };
+  cors?: CorsConfig;
+  rateLimit?: RateLimitConfig;
 }
 
 export interface HealthCheckResponse {
@@ -87,6 +101,91 @@ export function validateConfig(cfg: BackendConfig): string[] {
     errors.push(`basePath must start with "/". Got: "${cfg.api.basePath}".`);
   }
   return errors;
+}
+
+export interface RouteNamespace {
+  prefix: string;
+  routes: string[];
+}
+
+export interface RequestContext {
+  requestId: string;
+  timestamp: string;
+  path: string;
+  method: string;
+}
+
+const defaultCorsConfig: CorsConfig = {
+  allowedOrigins: ['*'],
+  allowedMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  maxAge: 86400,
+};
+
+const defaultRateLimitConfig: RateLimitConfig = {
+  windowMs: 60_000,
+  maxRequests: 100,
+};
+
+export function getCorsConfig(cfg: BackendConfig): CorsConfig {
+  return cfg.cors ?? defaultCorsConfig;
+}
+
+export function getRateLimitConfig(cfg: BackendConfig): RateLimitConfig {
+  return cfg.rateLimit ?? defaultRateLimitConfig;
+}
+
+export function createRouteNamespace(
+  cfg: BackendConfig,
+  prefix: string,
+  routes: string[]
+): RouteNamespace {
+  const cleanPrefix = prefix.replace(/^\/+|\/+$/g, '');
+  const cleanRoutes = routes.map((r) => {
+    const cleaned = r.replace(/^\/+|\/+$/g, '');
+    return `${buildRoute(cfg, cleanPrefix, cleaned)}`;
+  });
+  return { prefix: cleanPrefix, routes: cleanRoutes };
+}
+
+export function createRequestContext(
+  path: string,
+  method: string
+): RequestContext {
+  return {
+    requestId: generateRequestId(),
+    timestamp: new Date().toISOString(),
+    path,
+    method: method.toUpperCase(),
+  };
+}
+
+function generateRequestId(): string {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let id = 'req_';
+  for (let i = 0; i < 16; i++) {
+    id += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return id;
+}
+
+export function mergeConfig(
+  base: BackendConfig,
+  overrides: Partial<BackendConfig>
+): BackendConfig {
+  const merged: BackendConfig = {
+    server: { ...base.server, ...overrides.server },
+    api: { ...base.api, ...overrides.api },
+  };
+  const cors = overrides.cors ?? base.cors;
+  if (cors !== undefined) {
+    merged.cors = cors;
+  }
+  const rateLimit = overrides.rateLimit ?? base.rateLimit;
+  if (rateLimit !== undefined) {
+    merged.rateLimit = rateLimit;
+  }
+  return merged;
 }
 
 export { defaultConfig as backendConfig };
