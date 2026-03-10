@@ -40,6 +40,16 @@ export function getDevServerConfig(cfg: FrontendConfig = config): {
   };
 }
 
+export function getBuildConfig(cfg: FrontendConfig = config): {
+  outDir: string;
+  sourcemap: boolean;
+} {
+  return {
+    outDir: cfg.build.outDir,
+    sourcemap: cfg.build.sourcemap,
+  };
+}
+
 export function validateFrontendConfig(cfg: FrontendConfig): string[] {
   const errors: string[] = [];
   if (cfg.dev.port < 1 || cfg.dev.port > 65535) {

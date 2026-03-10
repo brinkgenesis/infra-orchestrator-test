@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getDevServerUrl, getBuildOutDir, isSourcemapEnabled, isHmrEnabled, createFrontendConfig, getDevServerConfig, validateFrontendConfig, frontendConfig } from './index';
+import { getDevServerUrl, getBuildOutDir, isSourcemapEnabled, isHmrEnabled, createFrontendConfig, getDevServerConfig, getBuildConfig, validateFrontendConfig, frontendConfig } from './index';
 import type { FrontendConfig } from './index';
 
 describe('frontend config', () => {
@@ -93,6 +93,22 @@ describe('frontend config', () => {
     expect(result.hmr).toBe(false);
   });
 
+  it('getBuildConfig returns summary object with defaults', () => {
+    const result = getBuildConfig();
+    expect(result.outDir).toBe('dist');
+    expect(result.sourcemap).toBe(true);
+  });
+
+  it('getBuildConfig respects custom config', () => {
+    const custom: FrontendConfig = {
+      dev: { port: 3000, hmr: true },
+      build: { outDir: 'output', sourcemap: false },
+    };
+    const result = getBuildConfig(custom);
+    expect(result.outDir).toBe('output');
+    expect(result.sourcemap).toBe(false);
+  });
+
   it('validateFrontendConfig returns no errors for valid config', () => {
     expect(validateFrontendConfig(frontendConfig)).toEqual([]);
   });
@@ -124,5 +140,19 @@ describe('frontend config', () => {
     };
     const errors = validateFrontendConfig(bad);
     expect(errors).toHaveLength(2);
+  });
+
+  it('validateFrontendConfig accepts boundary ports 1 and 65535', () => {
+    const low: FrontendConfig = { dev: { port: 1, hmr: true }, build: { outDir: 'dist', sourcemap: true } };
+    const high: FrontendConfig = { dev: { port: 65535, hmr: true }, build: { outDir: 'dist', sourcemap: true } };
+    expect(validateFrontendConfig(low)).toEqual([]);
+    expect(validateFrontendConfig(high)).toEqual([]);
+  });
+
+  it('validateFrontendConfig rejects negative port', () => {
+    const bad: FrontendConfig = { dev: { port: -1, hmr: true }, build: { outDir: 'dist', sourcemap: true } };
+    const errors = validateFrontendConfig(bad);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('Invalid port');
   });
 });
