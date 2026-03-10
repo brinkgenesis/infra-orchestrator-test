@@ -7,6 +7,7 @@ import {
   createConfigFromEnv,
   buildRoute,
   validateConfig,
+  mergeConfig,
   backendConfig,
 } from './index';
 import type { BackendConfig } from './index';
@@ -88,6 +89,11 @@ describe('createConfigFromEnv', () => {
     expect(cfg.api.basePath).toBe('/v2/api');
     expect(cfg.api.versioned).toBe(false);
   });
+
+  it('falls back to default port when PORT is not a valid number', () => {
+    const cfg = createConfigFromEnv({ PORT: 'abc' });
+    expect(cfg.server.port).toBe(8080);
+  });
 });
 
 describe('buildRoute', () => {
@@ -141,5 +147,26 @@ describe('validateConfig', () => {
     const errors = validateConfig(cfg);
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('basePath must start with');
+  });
+});
+
+describe('mergeConfig', () => {
+  it('returns default config when no overrides given', () => {
+    const cfg = mergeConfig({});
+    expect(cfg).toEqual(backendConfig);
+  });
+
+  it('overrides only server fields', () => {
+    const cfg = mergeConfig({ server: { port: 3000 } });
+    expect(cfg.server.port).toBe(3000);
+    expect(cfg.server.host).toBe('localhost');
+    expect(cfg.api).toEqual(backendConfig.api);
+  });
+
+  it('overrides only api fields', () => {
+    const cfg = mergeConfig({ api: { versioned: false } });
+    expect(cfg.api.versioned).toBe(false);
+    expect(cfg.api.basePath).toBe('/api');
+    expect(cfg.server).toEqual(backendConfig.server);
   });
 });
