@@ -61,4 +61,22 @@ export function validateFrontendConfig(cfg: FrontendConfig): string[] {
   return errors;
 }
 
+export function resolveOutPath(
+  filePath: string,
+  cfg: FrontendConfig = config,
+): string {
+  const outDir = cfg.build.outDir.replace(/\/+$/, '');
+  const clean = filePath.replace(/^\/+/, '');
+  return `${outDir}/${clean}`;
+}
+
+export function formatDevBanner(cfg: FrontendConfig = config): string {
+  const hmrStatus = cfg.dev.hmr ? 'enabled' : 'disabled';
+  return `Dev server: http://localhost:${cfg.dev.port} | HMR: ${hmrStatus}`;
+}
+
+export function getConfigSnapshot(cfg: FrontendConfig = config): string {
+  return JSON.stringify({ dev: cfg.dev, build: cfg.build });
+}
+
 export { config as frontendConfig };
