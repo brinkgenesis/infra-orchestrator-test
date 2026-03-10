@@ -128,4 +128,61 @@ export function getAssetPath(filePath: string, hash: string, cfg: FrontendConfig
   return `${outDir}/${clean}.${hash}${ext}`;
 }
 
+export function getPublicUrl(basePath: string, cfg: FrontendConfig = config): string {
+  const base = basePath.replace(/\/+$/, '');
+  return `${base}/${cfg.build.outDir}`;
+}
+
+export function validateDevProxyConfig(proxy: DevProxyConfig): string[] {
+  const errors: string[] = [];
+  if (!proxy.target || proxy.target.trim() === '') {
+    errors.push('Proxy target must not be empty.');
+  }
+  try {
+    if (proxy.target) new URL(proxy.target);
+  } catch {
+    errors.push(`Invalid proxy target URL: ${proxy.target}`);
+  }
+  if (Object.keys(proxy.pathRewrite).length === 0) {
+    errors.push('Proxy must have at least one path rewrite rule.');
+  }
+  return errors;
+}
+
+export function isDevMode(env: Record<string, string | undefined> = {}): boolean {
+  return env['NODE_ENV'] !== 'production';
+}
+
+export type AssetManifestEntry = {
+  src: string;
+  file: string;
+  isEntry?: boolean;
+};
+
+export type AssetManifest = Record<string, AssetManifestEntry>;
+
+export function buildAssetManifest(
+  entries: Array<{ src: string; hash: string; isEntry?: boolean }>,
+  cfg: FrontendConfig = config,
+): AssetManifest {
+  const manifest: AssetManifest = {};
+  for (const entry of entries) {
+    const file = getAssetPath(entry.src, entry.hash, cfg);
+    const item: AssetManifestEntry = { src: entry.src, file };
+    if (entry.isEntry !== undefined) item.isEntry = entry.isEntry;
+    manifest[entry.src] = item;
+  }
+  return manifest;
+}
+
+export function formatBuildSummary(
+  manifest: AssetManifest,
+  cfg: FrontendConfig = config,
+): string {
+  const count = Object.keys(manifest).length;
+  const entryCount = Object.values(manifest).filter((e) => e.isEntry).length;
+  const smLabel = cfg.build.sourcemap ? 'on' : 'off';
+  return `Build: ${count} asset(s), ${entryCount} entry point(s), sourcemaps ${smLabel} -> ${cfg.build.outDir}`;
+}
+
 export { config as frontendConfig };

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getDevServerUrl, getBuildOutDir, isSourcemapEnabled, isHmrEnabled, createFrontendConfig, getDevServerConfig, getBuildConfig, validateFrontendConfig, resolveOutPath, formatDevBanner, getConfigSnapshot, frontendConfig, createDevProxyConfig, createConfigFromEnv, mergeConfigs, getAssetPath } from './index';
+import { getDevServerUrl, getBuildOutDir, isSourcemapEnabled, isHmrEnabled, createFrontendConfig, getDevServerConfig, getBuildConfig, validateFrontendConfig, resolveOutPath, formatDevBanner, getConfigSnapshot, frontendConfig, createDevProxyConfig, createConfigFromEnv, mergeConfigs, getAssetPath, getPublicUrl, validateDevProxyConfig, isDevMode, buildAssetManifest, formatBuildSummary } from './index';
 import type { FrontendConfig } from './index';
 
 describe('frontend config', () => {
@@ -244,5 +244,60 @@ describe('frontend config', () => {
 
   it('getAssetPath handles files without extension', () => {
     expect(getAssetPath('LICENSE', 'aaa')).toBe('dist/LICENSE.aaa');
+  });
+
+  it('validateFrontendConfig rejects NaN port', () => {
+    const bad: FrontendConfig = { dev: { port: NaN, hmr: true }, build: { outDir: 'dist', sourcemap: true } };
+    const errors = validateFrontendConfig(bad);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('Invalid port');
+  });
+
+  it('getPublicUrl returns base path joined with outDir', () => {
+    expect(getPublicUrl('/static')).toBe('/static/dist');
+  });
+
+  it('getPublicUrl strips trailing slashes from base', () => {
+    expect(getPublicUrl('/assets/')).toBe('/assets/dist');
+  });
+
+  it('getPublicUrl respects custom config', () => {
+    const cfg: FrontendConfig = { dev: { port: 3000, hmr: true }, build: { outDir: 'build', sourcemap: true } };
+    expect(getPublicUrl('/cdn', cfg)).toBe('/cdn/build');
+  });
+
+  it('validateDevProxyConfig returns no errors for valid config', () => {
+    const proxy = createDevProxyConfig('http://localhost:8080');
+    expect(validateDevProxyConfig(proxy)).toEqual([]);
+  });
+
+  it('validateDevProxyConfig catches empty target', () => {
+    const errors = validateDevProxyConfig({ target: '', pathRewrite: { '/api': '/api' }, changeOrigin: true });
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]).toContain('empty');
+  });
+
+  it('validateDevProxyConfig catches invalid URL', () => {
+    const errors = validateDevProxyConfig({ target: 'not-a-url', pathRewrite: { '/api': '/api' }, changeOrigin: true });
+    expect(errors.some(e => e.includes('Invalid proxy target'))).toBe(true);
+  });
+
+  it('validateDevProxyConfig catches empty pathRewrite', () => {
+    const errors = validateDevProxyConfig({ target: 'http://localhost:8080', pathRewrite: {}, changeOrigin: true });
+    expect(errors.some(e => e.includes('path rewrite'))).toBe(true);
+  });
+
+  it('isDevMode returns true by default', () => {
+    expect(isDevMode()).toBe(true);
+    expect(isDevMode({})).toBe(true);
+  });
+
+  it('isDevMode returns false in production', () => {
+    expect(isDevMode({ NODE_ENV: 'production' })).toBe(false);
+  });
+
+  it('isDevMode returns true for non-production', () => {
+    expect(isDevMode({ NODE_ENV: 'development' })).toBe(true);
+    expect(isDevMode({ NODE_ENV: 'test' })).toBe(true);
   });
 });
