@@ -1,4 +1,4 @@
-interface FrontendConfig {
+export interface FrontendConfig {
   dev: {
     port: number;
     hmr: boolean;
