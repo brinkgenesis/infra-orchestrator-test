@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getDevServerUrl, getBuildOutDir, isSourcemapEnabled, isHmrEnabled, createFrontendConfig, frontendConfig } from './index';
+import { getDevServerUrl, getBuildOutDir, isSourcemapEnabled, isHmrEnabled, createFrontendConfig, getPublicUrl, getAssetPublicPath, resolveAssetUrl, isDevMode, frontendConfig } from './index';
 import type { FrontendConfig } from './index';
 
 describe('frontend config', () => {
@@ -73,5 +73,65 @@ describe('frontend config', () => {
     expect(cfg.dev.hmr).toBe(true);
     expect(cfg.build.outDir).toBe('dist');
     expect(cfg.build.sourcemap).toBe(false);
+  });
+
+  it('getPublicUrl returns base URL with default path', () => {
+    expect(getPublicUrl()).toBe('http://localhost:3000/');
+  });
+
+  it('getPublicUrl appends path correctly', () => {
+    expect(getPublicUrl('/assets/main.js')).toBe('http://localhost:3000/assets/main.js');
+  });
+
+  it('getPublicUrl normalizes path without leading slash', () => {
+    expect(getPublicUrl('api/data')).toBe('http://localhost:3000/api/data');
+  });
+
+  it('getPublicUrl respects custom config', () => {
+    const custom: FrontendConfig = {
+      dev: { port: 9000, hmr: false },
+      build: { outDir: 'dist', sourcemap: true },
+    };
+    expect(getPublicUrl('/app', custom)).toBe('http://localhost:9000/app');
+  });
+
+  it('getAssetPublicPath returns path based on outDir', () => {
+    expect(getAssetPublicPath()).toBe('/dist/');
+  });
+
+  it('getAssetPublicPath respects custom config', () => {
+    const custom: FrontendConfig = {
+      dev: { port: 3000, hmr: true },
+      build: { outDir: 'build', sourcemap: false },
+    };
+    expect(getAssetPublicPath(custom)).toBe('/build/');
+  });
+
+  it('resolveAssetUrl joins base path with asset name', () => {
+    expect(resolveAssetUrl('main.js')).toBe('/dist/main.js');
+  });
+
+  it('resolveAssetUrl strips leading slashes from asset name', () => {
+    expect(resolveAssetUrl('/images/logo.png')).toBe('/dist/images/logo.png');
+  });
+
+  it('resolveAssetUrl respects custom config', () => {
+    const custom: FrontendConfig = {
+      dev: { port: 3000, hmr: true },
+      build: { outDir: 'public', sourcemap: false },
+    };
+    expect(resolveAssetUrl('style.css', custom)).toBe('/public/style.css');
+  });
+
+  it('isDevMode returns true when hmr enabled and port > 0', () => {
+    expect(isDevMode()).toBe(true);
+  });
+
+  it('isDevMode returns false when hmr disabled', () => {
+    const custom: FrontendConfig = {
+      dev: { port: 3000, hmr: false },
+      build: { outDir: 'dist', sourcemap: true },
+    };
+    expect(isDevMode(custom)).toBe(false);
   });
 });
