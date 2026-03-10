@@ -180,6 +180,20 @@ describe('CircuitBreaker', () => {
     expect(cb.getState()).toBe('half-open');
   });
 
+  it('re-opens immediately on first failure in half-open state', async () => {
+    const cb = new CircuitBreaker({ failureThreshold: 3, resetTimeoutMs: 50 });
+    for (let i = 0; i < 3; i++) {
+      await expect(cb.execute(() => Promise.reject(new Error('x')))).rejects.toThrow();
+    }
+    expect(cb.getState()).toBe('open');
+
+    await new Promise((r) => setTimeout(r, 60));
+    expect(cb.getState()).toBe('half-open');
+
+    await expect(cb.execute(() => Promise.reject(new Error('x')))).rejects.toThrow();
+    expect(cb.getState()).toBe('open');
+  });
+
   it('closes again after success in half-open', async () => {
     const cb = new CircuitBreaker({ failureThreshold: 1, resetTimeoutMs: 50 });
     await expect(cb.execute(() => Promise.reject(new Error('x')))).rejects.toThrow();
