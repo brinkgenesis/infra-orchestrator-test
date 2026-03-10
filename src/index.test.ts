@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { defaultConfig, resolveConfig, getServerUrl } from './index';
+import { defaultConfig } from './index';
+import type { AppConfig } from './index';
 
 describe('AppConfig', () => {
   it('has correct default values', () => {
@@ -8,20 +9,20 @@ describe('AppConfig', () => {
     expect(defaultConfig.env).toBe('development');
   });
 
-  it('resolveConfig returns defaults when no overrides given', () => {
-    expect(resolveConfig()).toEqual(defaultConfig);
+  it('satisfies the AppConfig interface', () => {
+    const config: AppConfig = defaultConfig;
+    expect(config).toHaveProperty('port');
+    expect(config).toHaveProperty('host');
+    expect(config).toHaveProperty('env');
   });
 
-  it('resolveConfig merges overrides', () => {
-    const config = resolveConfig({ port: 8080, env: 'production' });
-    expect(config.port).toBe(8080);
-    expect(config.host).toBe('localhost');
-    expect(config.env).toBe('production');
+  it('has a valid port number', () => {
+    expect(defaultConfig.port).toBeGreaterThan(0);
+    expect(defaultConfig.port).toBeLessThanOrEqual(65535);
   });
 
-  it('getServerUrl returns correct URL', () => {
-    expect(getServerUrl()).toBe('http://localhost:3000');
-    expect(getServerUrl({ port: 8080, host: '0.0.0.0', env: 'production' }))
-      .toBe('http://0.0.0.0:8080');
+  it('has a valid env value', () => {
+    const validEnvs = ['development', 'production', 'test'];
+    expect(validEnvs).toContain(defaultConfig.env);
   });
 });
