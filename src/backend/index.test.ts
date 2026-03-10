@@ -13,6 +13,7 @@ import {
   createRouteNamespace,
   createRequestContext,
   mergeConfig,
+  parsePort,
 } from './index';
 import type { BackendConfig, CorsConfig, RateLimitConfig } from './index';
 
@@ -138,11 +139,11 @@ describe('validateConfig', () => {
     expect(errors[0]).toContain('Host must not be empty');
   });
 
-  it('detects NaN port from invalid env input', () => {
+  it('falls back to default port for invalid env PORT', () => {
     const cfg = createConfigFromEnv({ PORT: 'abc' });
+    expect(cfg.server.port).toBe(8080);
     const errors = validateConfig(cfg);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain('Invalid port');
+    expect(errors).toHaveLength(0);
   });
 
   it('detects fractional port', () => {
@@ -265,5 +266,33 @@ describe('mergeConfig', () => {
     };
     const merged = mergeConfig(backendConfig, { cors });
     expect(merged.cors).toEqual(cors);
+  });
+});
+
+describe('parsePort', () => {
+  it('parses valid port string', () => {
+    expect(parsePort('3000', 8080)).toBe(3000);
+  });
+
+  it('returns fallback for NaN input', () => {
+    expect(parsePort('abc', 8080)).toBe(8080);
+  });
+
+  it('returns fallback for port below 1', () => {
+    expect(parsePort('0', 8080)).toBe(8080);
+    expect(parsePort('-1', 8080)).toBe(8080);
+  });
+
+  it('returns fallback for port above 65535', () => {
+    expect(parsePort('70000', 8080)).toBe(8080);
+  });
+
+  it('returns fallback for fractional port', () => {
+    expect(parsePort('80.5', 8080)).toBe(8080);
+  });
+
+  it('parses boundary ports correctly', () => {
+    expect(parsePort('1', 8080)).toBe(1);
+    expect(parsePort('65535', 8080)).toBe(65535);
   });
 });

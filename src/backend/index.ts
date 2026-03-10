@@ -67,10 +67,18 @@ export function getHealthCheckUrl(cfg: BackendConfig = defaultConfig): string {
   return `${getApiUrl(cfg)}/health`;
 }
 
+export function parsePort(value: string, fallback: number): number {
+  const asFloat = Number(value);
+  if (!Number.isInteger(asFloat) || asFloat < 1 || asFloat > 65535) {
+    return fallback;
+  }
+  return asFloat;
+}
+
 export function createConfigFromEnv(env: Record<string, string | undefined>): BackendConfig {
   return {
     server: {
-      port: env['PORT'] ? parseInt(env['PORT'], 10) : defaultConfig.server.port,
+      port: env['PORT'] ? parsePort(env['PORT'], defaultConfig.server.port) : defaultConfig.server.port,
       host: env['HOST'] ?? defaultConfig.server.host,
     },
     api: {
