@@ -1,7 +1,18 @@
+interface FrontendConfig {
+  dev: {
+    port: number;
+    hmr: boolean;
+  };
+  build: {
+    outDir: string;
+    sourcemap: boolean;
+  };
+}
+
 /**
  * Frontend & DX configuration for the infra orchestrator.
  */
-export default {
+const config: FrontendConfig = {
   dev: {
     port: 3000,
     hmr: true,
@@ -11,3 +22,5 @@ export default {
     sourcemap: true,
   },
 };
+
+export default config;
