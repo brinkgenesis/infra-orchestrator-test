@@ -66,4 +66,27 @@ export function createConfigFromEnv(env: Record<string, string | undefined>): Ba
   };
 }
 
+export function buildRoute(cfg: BackendConfig, ...segments: string[]): string {
+  const apiUrl = getApiUrl(cfg);
+  const joined = segments
+    .map((s) => s.replace(/^\/+|\/+$/g, ''))
+    .filter(Boolean)
+    .join('/');
+  return joined ? `${apiUrl}/${joined}` : apiUrl;
+}
+
+export function validateConfig(cfg: BackendConfig): string[] {
+  const errors: string[] = [];
+  if (cfg.server.port < 1 || cfg.server.port > 65535) {
+    errors.push(`Invalid port: ${cfg.server.port}. Must be between 1 and 65535.`);
+  }
+  if (!cfg.server.host) {
+    errors.push('Host must not be empty.');
+  }
+  if (!cfg.api.basePath.startsWith('/')) {
+    errors.push(`basePath must start with "/". Got: "${cfg.api.basePath}".`);
+  }
+  return errors;
+}
+
 export { defaultConfig as backendConfig };
