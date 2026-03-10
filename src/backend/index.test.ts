@@ -290,3 +290,94 @@ describe('isHealthy', () => {
     expect(isHealthy({ status: 'error', timestamp: '', uptime: 0, version: '1.0.0' })).toBe(false);
   });
 });
+
+describe('middleware config', () => {
+  it('exports valid default middleware config', () => {
+    expect(middlewareConfig).toBeDefined();
+    expect(middlewareConfig.cors.allowedOrigins).toEqual(['*']);
+    expect(middlewareConfig.cors.allowedMethods).toContain('GET');
+    expect(middlewareConfig.cors.allowCredentials).toBe(false);
+    expect(middlewareConfig.rateLimit.windowMs).toBe(60_000);
+    expect(middlewareConfig.rateLimit.maxRequests).toBe(100);
+    expect(middlewareConfig.requestLogging).toBe(true);
+  });
+
+  it('createMiddlewareConfig returns defaults with no overrides', () => {
+    const cfg = createMiddlewareConfig();
+    expect(cfg).toEqual(middlewareConfig);
+  });
+
+  it('createMiddlewareConfig merges cors overrides', () => {
+    const cfg = createMiddlewareConfig({
+      cors: { allowedOrigins: ['https://example.com'], allowedMethods: ['GET'], allowCredentials: true },
+    });
+    expect(cfg.cors.allowedOrigins).toEqual(['https://example.com']);
+    expect(cfg.cors.allowCredentials).toBe(true);
+    expect(cfg.rateLimit).toEqual(middlewareConfig.rateLimit);
+  });
+
+  it('createMiddlewareConfig merges rateLimit overrides', () => {
+    const cfg = createMiddlewareConfig({
+      rateLimit: { windowMs: 30_000, maxRequests: 50 },
+    });
+    expect(cfg.rateLimit.windowMs).toBe(30_000);
+    expect(cfg.rateLimit.maxRequests).toBe(50);
+    expect(cfg.cors).toEqual(middlewareConfig.cors);
+  });
+
+  it('createMiddlewareConfig overrides requestLogging', () => {
+    const cfg = createMiddlewareConfig({ requestLogging: false });
+    expect(cfg.requestLogging).toBe(false);
+  });
+});
+
+describe('isOriginAllowed', () => {
+  it('allows any origin when wildcard is present', () => {
+    const cors: CorsConfig = { allowedOrigins: ['*'], allowedMethods: ['GET'], allowCredentials: false };
+    expect(isOriginAllowed(cors, 'https://anything.com')).toBe(true);
+  });
+
+  it('allows listed origins', () => {
+    const cors: CorsConfig = { allowedOrigins: ['https://example.com'], allowedMethods: ['GET'], allowCredentials: false };
+    expect(isOriginAllowed(cors, 'https://example.com')).toBe(true);
+  });
+
+  it('rejects unlisted origins', () => {
+    const cors: CorsConfig = { allowedOrigins: ['https://example.com'], allowedMethods: ['GET'], allowCredentials: false };
+    expect(isOriginAllowed(cors, 'https://evil.com')).toBe(false);
+  });
+});
+
+describe('validateMiddlewareConfig', () => {
+  it('returns no errors for valid config', () => {
+    expect(validateMiddlewareConfig(middlewareConfig)).toEqual([]);
+  });
+
+  it('detects empty allowedOrigins', () => {
+    const cfg = createMiddlewareConfig({ cors: { allowedOrigins: [], allowedMethods: ['GET'], allowCredentials: false } });
+    const errors = validateMiddlewareConfig(cfg);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('allowedOrigins');
+  });
+
+  it('detects empty allowedMethods', () => {
+    const cfg = createMiddlewareConfig({ cors: { allowedOrigins: ['*'], allowedMethods: [], allowCredentials: false } });
+    const errors = validateMiddlewareConfig(cfg);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('allowedMethods');
+  });
+
+  it('detects non-positive windowMs', () => {
+    const cfg = createMiddlewareConfig({ rateLimit: { windowMs: 0, maxRequests: 100 } });
+    const errors = validateMiddlewareConfig(cfg);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('windowMs');
+  });
+
+  it('detects non-positive maxRequests', () => {
+    const cfg = createMiddlewareConfig({ rateLimit: { windowMs: 60_000, maxRequests: -1 } });
+    const errors = validateMiddlewareConfig(cfg);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('maxRequests');
+  });
+});
