@@ -78,6 +78,30 @@ describe('createCorsHeaders', () => {
     expect(headers['Access-Control-Allow-Origin']).toBeUndefined();
   });
 
+  it('sets Access-Control-Allow-Credentials when allowCredentials is true', () => {
+    const cors: CorsConfig = {
+      allowedOrigins: ['https://a.com'],
+      allowedMethods: ['GET'],
+      allowedHeaders: ['Content-Type'],
+      allowCredentials: true,
+      maxAge: 3600,
+    };
+    const headers = createCorsHeaders(cors, 'https://a.com');
+    expect(headers['Access-Control-Allow-Credentials']).toBe('true');
+  });
+
+  it('omits Access-Control-Allow-Credentials when allowCredentials is false', () => {
+    const cors: CorsConfig = {
+      allowedOrigins: ['*'],
+      allowedMethods: ['GET'],
+      allowedHeaders: ['Content-Type'],
+      allowCredentials: false,
+      maxAge: 3600,
+    };
+    const headers = createCorsHeaders(cors);
+    expect(headers['Access-Control-Allow-Credentials']).toBeUndefined();
+  });
+
   it('omits ACAO header when no requestOrigin provided and not wildcard', () => {
     const cors: CorsConfig = {
       allowedOrigins: ['https://a.com'],
