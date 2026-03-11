@@ -200,4 +200,8 @@ export function hasSourcemaps(cfg: FrontendConfig = config): boolean {
   return cfg.build.sourcemap;
 }
 
+export function shouldOpenBrowser(cfg: FrontendConfig = config): boolean {
+  return cfg.dev.open;
+}
+
 export { config as frontendConfig, createFrontendConfig };

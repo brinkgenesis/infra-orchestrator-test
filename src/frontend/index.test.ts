@@ -21,6 +21,7 @@ import {
   buildAssetManifest,
   formatBuildSummary,
   createFrontendConfig,
+  shouldOpenBrowser,
 } from './index';
 
 describe('frontend config', () => {
@@ -340,6 +341,15 @@ describe('frontend config', () => {
     const summary = formatBuildSummary(manifest);
     expect(summary).toContain('0 asset(s)');
     expect(summary).toContain('0 entry point(s)');
+  });
+
+  it('shouldOpenBrowser returns false by default', () => {
+    expect(shouldOpenBrowser()).toBe(false);
+  });
+
+  it('shouldOpenBrowser returns true when open is enabled', () => {
+    const cfg = createFrontendConfig({ dev: { open: true } });
+    expect(shouldOpenBrowser(cfg)).toBe(true);
   });
 });
 
