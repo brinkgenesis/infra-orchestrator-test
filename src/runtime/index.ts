@@ -293,6 +293,52 @@ export class RateLimiter {
   }
 }
 
+export interface DeadlineOptions {
+  timeoutMs: number;
+  message?: string;
+}
+
+/** Propagates a cancellation deadline across async call chains. */
+export class DeadlineContext {
+  private readonly deadline: number;
+  private readonly message: string;
+  private cancelled = false;
+
+  constructor(opts: DeadlineOptions) {
+    this.deadline = Date.now() + opts.timeoutMs;
+    this.message = opts.message ?? `Deadline exceeded after ${opts.timeoutMs}ms`;
+  }
+
+  /** Returns the number of milliseconds remaining before the deadline. */
+  remaining(): number {
+    return Math.max(0, this.deadline - Date.now());
+  }
+
+  /** Returns true if the deadline has passed or the context was manually cancelled. */
+  isExpired(): boolean {
+    return this.cancelled || Date.now() >= this.deadline;
+  }
+
+  /** Manually cancels the context. */
+  cancel(): void {
+    this.cancelled = true;
+  }
+
+  /** Throws if the deadline has expired or the context was cancelled. */
+  check(): void {
+    if (this.isExpired()) {
+      throw new Error(this.message);
+    }
+  }
+
+  /** Runs the given async function, rejecting if the deadline expires first. */
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    this.check();
+    const rem = this.remaining();
+    return withTimeout(fn, { timeoutMs: rem, message: this.message });
+  }
+}
+
 export type ShutdownHandler = () => Promise<void> | void;
 
 /** Manages ordered shutdown of registered async handlers with an overall timeout guard. */

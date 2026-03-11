@@ -108,9 +108,10 @@ export function getHealthCheckUrl(cfg: BackendConfig = defaultConfig): string {
 /** Builds a BackendConfig by reading PORT, HOST, API_BASE_PATH, and API_VERSIONED from the environment map. */
 export function createConfigFromEnv(env: Record<string, string | undefined>): BackendConfig {
   const parsedPort = env['PORT'] ? parseInt(env['PORT'], 10) : NaN;
+  const isValidPort = Number.isFinite(parsedPort) && parsedPort >= 1 && parsedPort <= 65535;
   return {
     server: {
-      port: Number.isFinite(parsedPort) ? parsedPort : defaultConfig.server.port,
+      port: isValidPort ? parsedPort : defaultConfig.server.port,
       host: env['HOST'] ?? defaultConfig.server.host,
     },
     api: {

@@ -45,6 +45,9 @@ export function createCorsHeaders(cors: CorsConfig, requestOrigin?: string): Rec
     'Access-Control-Allow-Headers': (cors.allowedHeaders ?? []).join(', '),
     'Access-Control-Max-Age': String(cors.maxAge ?? 0),
   };
+  if (cors.allowCredentials) {
+    headers['Access-Control-Allow-Credentials'] = 'true';
+  }
   if (cors.allowedOrigins.includes('*')) {
     headers['Access-Control-Allow-Origin'] = '*';
   } else if (requestOrigin !== undefined && cors.allowedOrigins.includes(requestOrigin)) {

@@ -120,6 +120,12 @@ describe('createConfigFromEnv', () => {
     const cfg = createConfigFromEnv({ PORT: 'abc' });
     expect(cfg.server.port).toBe(8080);
   });
+
+  it('falls back to default port when PORT is out of valid range', () => {
+    expect(createConfigFromEnv({ PORT: '0' }).server.port).toBe(8080);
+    expect(createConfigFromEnv({ PORT: '-1' }).server.port).toBe(8080);
+    expect(createConfigFromEnv({ PORT: '70000' }).server.port).toBe(8080);
+  });
 });
 
 describe('buildRoute', () => {
