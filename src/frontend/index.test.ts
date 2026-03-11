@@ -400,5 +400,44 @@ describe('frontend config', () => {
     expect(diffs).toContain('build.sourcemap: true -> false');
     expect(diffs).toHaveLength(2);
   });
+
+  it('resolveFrontendConfig returns default config when no overrides', () => {
+    const cfg = resolveFrontendConfig();
+    expect(cfg.dev.port).toBe(3000);
+    expect(cfg.build.outDir).toBe('dist');
+  });
+
+  it('resolveFrontendConfig applies overrides', () => {
+    const cfg = resolveFrontendConfig({ dev: { port: 7000 } });
+    expect(cfg.dev.port).toBe(7000);
+    expect(cfg.dev.hmr).toBe(true);
+  });
+
+  it('getProxyEntries returns empty array for default config', () => {
+    expect(getProxyEntries()).toEqual([]);
+  });
+
+  it('getProxyEntries returns entries from config proxy', () => {
+    const cfg = createFrontendConfig({ dev: { proxy: { '/api': 'http://localhost:8080' } } });
+    expect(getProxyEntries(cfg)).toEqual([['/api', 'http://localhost:8080']]);
+  });
+
+  it('getBuildTarget returns default target', () => {
+    expect(getBuildTarget()).toBe('ES2022');
+  });
+
+  it('getBuildTarget respects custom config', () => {
+    const cfg = createFrontendConfig({ build: { target: 'ES2020' } });
+    expect(getBuildTarget(cfg)).toBe('ES2020');
+  });
+
+  it('hasSourcemaps returns true by default', () => {
+    expect(hasSourcemaps()).toBe(true);
+  });
+
+  it('hasSourcemaps returns false when disabled', () => {
+    const cfg = createFrontendConfig({ build: { sourcemap: false } });
+    expect(hasSourcemaps(cfg)).toBe(false);
+  });
 });
 
