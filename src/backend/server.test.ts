@@ -75,7 +75,7 @@ describe('Server', () => {
     expect(server.getUptime()).toBeGreaterThanOrEqual(0);
   });
 
-  it('should clear routes and middlewares on stop', () => {
+  it('should preserve routes and middlewares on stop for restart', () => {
     const server = new Server();
     server.addRoute({ method: 'GET' as const, path: '/test', handler: 'test' });
     server.use((_req, _res, next) => next());
@@ -85,6 +85,24 @@ describe('Server', () => {
     expect(server.getMiddlewares()).toHaveLength(1);
 
     server.stop();
+    expect(server.isRunning()).toBe(false);
+    expect(server.getRoutes()).toHaveLength(1);
+    expect(server.getMiddlewares()).toHaveLength(1);
+
+    // Can restart with same routes/middlewares
+    server.start();
+    expect(server.isRunning()).toBe(true);
+    expect(server.getRoutes()).toHaveLength(1);
+  });
+
+  it('should clear routes and middlewares on reset', () => {
+    const server = new Server();
+    server.addRoute({ method: 'GET' as const, path: '/test', handler: 'test' });
+    server.use((_req, _res, next) => next());
+    server.start();
+
+    server.reset();
+    expect(server.isRunning()).toBe(false);
     expect(server.getRoutes()).toHaveLength(0);
     expect(server.getMiddlewares()).toHaveLength(0);
   });

@@ -89,6 +89,10 @@ export class Server {
 
   stop(): void {
     this.startTime = null;
+  }
+
+  reset(): void {
+    this.stop();
     this.routes = [];
     this.middlewares = [];
   }
