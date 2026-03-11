@@ -10,10 +10,12 @@ export const defaultConfig: AppConfig = {
   env: 'development',
 };
 
+/** Merges the provided overrides with the default application config and returns the result. */
 export function resolveConfig(overrides?: Partial<AppConfig>): AppConfig {
   return { ...defaultConfig, ...overrides };
 }
 
+/** Returns the full server URL string derived from the given config. */
 export function getServerUrl(config: AppConfig = defaultConfig): string {
   return `http://${config.host}:${config.port}`;
 }

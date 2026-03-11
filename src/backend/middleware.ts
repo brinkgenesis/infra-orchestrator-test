@@ -26,6 +26,7 @@ const defaultRateLimit: RateLimitConfig = {
   maxRequests: 100,
 };
 
+/** Creates a middleware stack configuration, merging any provided overrides with defaults. */
 export function createMiddlewareStack(
   overrides?: Partial<MiddlewareStack>
 ): MiddlewareStack {
@@ -37,6 +38,7 @@ export function createMiddlewareStack(
   };
 }
 
+/** Builds a map of CORS response headers based on the CORS config and optional incoming origin. */
 export function createCorsHeaders(cors: CorsConfig, requestOrigin?: string): Record<string, string> {
   const headers: Record<string, string> = {
     'Access-Control-Allow-Methods': cors.allowedMethods.join(', '),
@@ -52,6 +54,7 @@ export function createCorsHeaders(cors: CorsConfig, requestOrigin?: string): Rec
   return headers;
 }
 
+/** Returns true if the given request count has exceeded the rate limit. */
 export function isRateLimited(
   requestCount: number,
   config: RateLimitConfig
@@ -61,6 +64,7 @@ export function isRateLimited(
 
 let counter = 0;
 
+/** Creates a new middleware request context with a unique request ID and start timestamp. */
 export function createRequestContext(
   path: string,
   method: string
@@ -74,10 +78,12 @@ export function createRequestContext(
   };
 }
 
+/** Returns the number of milliseconds elapsed since the request context was created. */
 export function getElapsedMs(ctx: MiddlewareRequestContext): number {
   return Date.now() - ctx.startedAt;
 }
 
+/** Resolves the appropriate middleware stack from a backend config, applying cors and rate-limit overrides. */
 export function resolveMiddlewareForConfig(
   cfg: BackendConfig
 ): MiddlewareStack {
