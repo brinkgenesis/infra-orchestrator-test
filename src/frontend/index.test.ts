@@ -22,6 +22,14 @@ import {
   formatBuildSummary,
   createFrontendConfig,
   shouldOpenBrowser,
+  resolveFrontendConfig,
+  getProxyEntries,
+  getBuildTarget,
+  hasSourcemaps,
+  isMinifyEnabled,
+  getDevProxyEntries,
+  resolveAssetUrl,
+  diffConfigs,
 } from './index';
 
 describe('frontend config', () => {
@@ -350,6 +358,47 @@ describe('frontend config', () => {
   it('shouldOpenBrowser returns true when open is enabled', () => {
     const cfg = createFrontendConfig({ dev: { open: true } });
     expect(shouldOpenBrowser(cfg)).toBe(true);
+  });
+
+  it('isMinifyEnabled returns true by default', () => {
+    expect(isMinifyEnabled()).toBe(true);
+  });
+
+  it('isMinifyEnabled respects custom config', () => {
+    const cfg = createFrontendConfig({ build: { minify: false } });
+    expect(isMinifyEnabled(cfg)).toBe(false);
+  });
+
+  it('getDevProxyEntries returns empty array when no proxies', () => {
+    expect(getDevProxyEntries()).toEqual([]);
+  });
+
+  it('getDevProxyEntries returns structured proxy entries', () => {
+    const cfg = createFrontendConfig({ dev: { proxy: { '/api': 'http://localhost:8080' } } });
+    const entries = getDevProxyEntries(cfg);
+    expect(entries).toEqual([{ from: '/api', to: 'http://localhost:8080' }]);
+  });
+
+  it('resolveAssetUrl combines base path with asset path', () => {
+    expect(resolveAssetUrl('/cdn', 'main.js', 'abc123')).toBe('/cdn/dist/main.abc123.js');
+  });
+
+  it('resolveAssetUrl strips trailing slashes from base', () => {
+    expect(resolveAssetUrl('/static/', 'style.css', 'def')).toBe('/static/dist/style.def.css');
+  });
+
+  it('diffConfigs returns empty array for identical configs', () => {
+    const cfg = createFrontendConfig();
+    expect(diffConfigs(cfg, cfg)).toEqual([]);
+  });
+
+  it('diffConfigs detects changed fields', () => {
+    const a = createFrontendConfig();
+    const b = createFrontendConfig({ dev: { port: 8080 }, build: { sourcemap: false } });
+    const diffs = diffConfigs(a, b);
+    expect(diffs).toContain('dev.port: 3000 -> 8080');
+    expect(diffs).toContain('build.sourcemap: true -> false');
+    expect(diffs).toHaveLength(2);
   });
 });
 
