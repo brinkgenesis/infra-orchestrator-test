@@ -10,6 +10,7 @@ import {
   Bulkhead,
   RateLimiter,
   GracefulShutdown,
+  DeadlineContext,
 } from './index';
 
 describe('computeBackoff', () => {
@@ -548,6 +549,78 @@ describe('aggregateHealth', () => {
     const elapsed = Date.now() - start;
     // Both run in parallel, so total should be ~20ms not ~40ms
     expect(elapsed).toBeLessThan(35);
+  });
+});
+
+describe('DeadlineContext', () => {
+  it('starts with positive remaining time', () => {
+    const ctx = new DeadlineContext({ timeoutMs: 1000 });
+    expect(ctx.remaining()).toBeGreaterThan(0);
+    expect(ctx.isExpired()).toBe(false);
+  });
+
+  it('check() does not throw before deadline', () => {
+    const ctx = new DeadlineContext({ timeoutMs: 1000 });
+    expect(() => ctx.check()).not.toThrow();
+  });
+
+  it('expires after timeout', async () => {
+    const ctx = new DeadlineContext({ timeoutMs: 10 });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(ctx.isExpired()).toBe(true);
+    expect(ctx.remaining()).toBe(0);
+    expect(() => ctx.check()).toThrow('Deadline exceeded after 10ms');
+  });
+
+  it('can be manually cancelled', () => {
+    const ctx = new DeadlineContext({ timeoutMs: 10000 });
+    expect(ctx.isExpired()).toBe(false);
+    ctx.cancel();
+    expect(ctx.isExpired()).toBe(true);
+  });
+
+  it('uses custom message', async () => {
+    const ctx = new DeadlineContext({ timeoutMs: 10, message: 'custom deadline' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(() => ctx.check()).toThrow('custom deadline');
+  });
+
+  it('run() resolves if fn completes before deadline', async () => {
+    const ctx = new DeadlineContext({ timeoutMs: 1000 });
+    const result = await ctx.run(() => Promise.resolve('done'));
+    expect(result).toBe('done');
+  });
+
+  it('run() rejects if fn exceeds deadline', async () => {
+    const ctx = new DeadlineContext({ timeoutMs: 10 });
+    await expect(
+      ctx.run(() => new Promise((r) => setTimeout(r, 200))),
+    ).rejects.toThrow('Deadline exceeded');
+  });
+
+  it('run() rejects immediately if already expired', async () => {
+    const ctx = new DeadlineContext({ timeoutMs: 10 });
+    await new Promise((r) => setTimeout(r, 20));
+    await expect(
+      ctx.run(() => Promise.resolve('late')),
+    ).rejects.toThrow('Deadline exceeded');
+  });
+
+  it('run() rejects immediately if cancelled', async () => {
+    const ctx = new DeadlineContext({ timeoutMs: 10000 });
+    ctx.cancel();
+    await expect(
+      ctx.run(() => Promise.resolve('cancelled')),
+    ).rejects.toThrow();
+  });
+
+  it('supports sequential runs sharing the same deadline', async () => {
+    const ctx = new DeadlineContext({ timeoutMs: 200 });
+    const r1 = await ctx.run(() => Promise.resolve('a'));
+    const r2 = await ctx.run(() => Promise.resolve('b'));
+    expect(r1).toBe('a');
+    expect(r2).toBe('b');
+    expect(ctx.remaining()).toBeGreaterThan(0);
   });
 });
 
