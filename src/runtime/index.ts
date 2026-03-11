@@ -27,6 +27,7 @@ const DEFAULT_RETRY: RetryOptions = {
   maxDelayMs: 5000,
 };
 
+/** Computes the exponential backoff delay (in ms) for a given attempt number, with optional jitter. */
 export function computeBackoff(attempt: number, opts: RetryOptions = DEFAULT_RETRY): number {
   const delay = opts.baseDelayMs * Math.pow(2, attempt);
   const capped = Math.min(delay, opts.maxDelayMs);
@@ -36,6 +37,7 @@ export function computeBackoff(attempt: number, opts: RetryOptions = DEFAULT_RET
   return capped;
 }
 
+/** Executes the given async function with automatic retries according to the provided options. */
 export async function withRetry<T>(
   fn: () => Promise<T>,
   opts: RetryOptions = DEFAULT_RETRY,
@@ -68,6 +70,7 @@ export interface CircuitBreakerMetrics {
   lastFailureTime: number;
 }
 
+/** Implements the circuit-breaker pattern to stop cascading failures in async operations. */
 export class CircuitBreaker {
   private state: CircuitState = 'closed';
   private failures = 0;
@@ -77,11 +80,13 @@ export class CircuitBreaker {
   private readonly failureThreshold: number;
   private readonly resetTimeoutMs: number;
 
+  /** Initializes the circuit breaker with the given failure threshold and reset timeout. */
   constructor(opts: CircuitBreakerOptions) {
     this.failureThreshold = opts.failureThreshold;
     this.resetTimeoutMs = opts.resetTimeoutMs;
   }
 
+  /** Returns the current circuit state, transitioning from open to half-open if the reset timeout has elapsed. */
   getState(): CircuitState {
     if (this.state === 'open') {
       const elapsed = Date.now() - this.lastFailureTime;
@@ -92,6 +97,7 @@ export class CircuitBreaker {
     return this.state;
   }
 
+  /** Returns a snapshot of the circuit breaker's current metrics. */
   getMetrics(): CircuitBreakerMetrics {
     return {
       state: this.getState(),
@@ -102,6 +108,7 @@ export class CircuitBreaker {
     };
   }
 
+  /** Executes the given function through the circuit breaker, throwing if the circuit is open. */
   async execute<T>(fn: () => Promise<T>): Promise<T> {
     const current = this.getState();
 
@@ -134,6 +141,7 @@ export class CircuitBreaker {
     }
   }
 
+  /** Resets the circuit breaker to its initial closed state, clearing all counters. */
   reset(): void {
     this.state = 'closed';
     this.failures = 0;
@@ -148,6 +156,7 @@ export interface TimeoutOptions {
   message?: string;
 }
 
+/** Executes the given async function and rejects with a timeout error if it does not complete in time. */
 export async function withTimeout<T>(
   fn: () => Promise<T>,
   opts: TimeoutOptions,
@@ -170,6 +179,7 @@ export async function withTimeout<T>(
   });
 }
 
+/** Executes the given function with both retry and per-attempt timeout semantics applied. */
 export async function withRetryAndTimeout<T>(
   fn: () => Promise<T>,
   retryOpts: RetryOptions,
@@ -178,25 +188,30 @@ export async function withRetryAndTimeout<T>(
   return withRetry(() => withTimeout(fn, timeoutOpts), retryOpts);
 }
 
+/** Limits the number of concurrent async executions and optionally queues excess requests. */
 export class Bulkhead {
   private running = 0;
   private readonly queue: Array<() => void> = [];
   private readonly maxConcurrent: number;
   private readonly maxQueue: number;
 
+  /** Initializes the bulkhead with the given concurrency limit and optional queue depth. */
   constructor(maxConcurrent: number, maxQueue = Infinity) {
     this.maxConcurrent = maxConcurrent;
     this.maxQueue = maxQueue;
   }
 
+  /** Returns the number of currently running executions. */
   getRunning(): number {
     return this.running;
   }
 
+  /** Returns the number of requests waiting in the queue. */
   getQueueLength(): number {
     return this.queue.length;
   }
 
+  /** Executes the given function within the bulkhead, queuing if at capacity or throwing if the queue is full. */
   async execute<T>(fn: () => Promise<T>): Promise<T> {
     if (this.running >= this.maxConcurrent) {
       if (this.queue.length >= this.maxQueue) {
@@ -226,12 +241,14 @@ export interface RateLimiterOptions {
   refillRate: number;
 }
 
+/** Token-bucket rate limiter that refills at a configurable rate per second. */
 export class RateLimiter {
   private tokens: number;
   private readonly maxTokens: number;
   private readonly refillRate: number;
   private lastRefill: number;
 
+  /** Initializes the rate limiter with the given max token capacity and refill rate. */
   constructor(opts: RateLimiterOptions) {
     this.maxTokens = opts.maxTokens;
     this.refillRate = opts.refillRate;
@@ -247,11 +264,13 @@ export class RateLimiter {
     this.lastRefill = now;
   }
 
+  /** Returns the current available token count after performing a refill. */
   getTokens(): number {
     this.refill();
     return this.tokens;
   }
 
+  /** Attempts to acquire the specified number of tokens without blocking; returns false if unavailable. */
   tryAcquire(count = 1): boolean {
     this.refill();
     if (this.tokens >= count) {
@@ -261,6 +280,7 @@ export class RateLimiter {
     return false;
   }
 
+  /** Waits until the specified number of tokens are available and then acquires them. */
   async acquire(count = 1): Promise<void> {
     if (this.refillRate <= 0) {
       throw new Error('Cannot acquire: refillRate must be greater than 0');
@@ -275,22 +295,27 @@ export class RateLimiter {
 
 export type ShutdownHandler = () => Promise<void> | void;
 
+/** Manages ordered shutdown of registered async handlers with an overall timeout guard. */
 export class GracefulShutdown {
   private handlers: Array<{ name: string; handler: ShutdownHandler }> = [];
   private isShuttingDown = false;
 
+  /** Registers a named shutdown handler to be called during graceful shutdown. */
   register(name: string, handler: ShutdownHandler): void {
     this.handlers.push({ name, handler });
   }
 
+  /** Removes the shutdown handler with the given name. */
   unregister(name: string): void {
     this.handlers = this.handlers.filter((h) => h.name !== name);
   }
 
+  /** Returns true if a shutdown sequence is currently in progress. */
   getIsShuttingDown(): boolean {
     return this.isShuttingDown;
   }
 
+  /** Runs all registered handlers in reverse order and returns success/error results, subject to the given timeout. */
   async shutdown(timeoutMs = 10000): Promise<{ success: boolean; errors: Array<{ name: string; error: string }> }> {
     if (this.isShuttingDown) {
       return { success: false, errors: [{ name: 'shutdown', error: 'Shutdown already in progress' }] };
@@ -320,12 +345,14 @@ export class GracefulShutdown {
     return { success: errors.length === 0, errors };
   }
 
+  /** Clears all handlers and resets the shutdown state. */
   reset(): void {
     this.handlers = [];
     this.isShuttingDown = false;
   }
 }
 
+/** Runs a health probe for the named service and returns a HealthStatus with latency and error info. */
 export async function checkHealth(
   service: string,
   probe: () => Promise<void>,
@@ -356,6 +383,7 @@ export interface AggregateHealthStatus {
   totalLatencyMs: number;
 }
 
+/** Runs all provided health probes concurrently and returns an aggregated health status. */
 export async function aggregateHealth(
   checks: Array<{ service: string; probe: () => Promise<void> }>,
 ): Promise<AggregateHealthStatus> {
