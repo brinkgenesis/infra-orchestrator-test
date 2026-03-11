@@ -32,7 +32,8 @@ export function computeBackoff(attempt: number, opts: RetryOptions = DEFAULT_RET
   const delay = opts.baseDelayMs * Math.pow(2, attempt);
   const capped = Math.min(delay, opts.maxDelayMs);
   if (opts.jitter === true) {
-    return Math.floor(capped * Math.random());
+    // Full jitter with a floor of 1ms to avoid zero-delay retries
+    return Math.max(1, Math.floor(capped * Math.random()));
   }
   return capped;
 }

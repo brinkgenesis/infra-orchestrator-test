@@ -1,0 +1,26 @@
+{
+  "name": "infra-orchestrator-test",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/brinkgenesis/infra-orchestrator-test.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/brinkgenesis/infra-orchestrator-test/issues"
+  },
+  "homepage": "https://github.com/brinkgenesis/infra-orchestrator-test#readme"
+}
