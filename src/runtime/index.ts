@@ -60,9 +60,19 @@ export async function withRetry<T>(
   throw lastError;
 }
 
+export interface CircuitBreakerMetrics {
+  state: CircuitState;
+  failures: number;
+  successes: number;
+  totalRequests: number;
+  lastFailureTime: number;
+}
+
 export class CircuitBreaker {
   private state: CircuitState = 'closed';
   private failures = 0;
+  private successes = 0;
+  private totalRequests = 0;
   private lastFailureTime = 0;
   private readonly failureThreshold: number;
   private readonly resetTimeoutMs: number;
@@ -82,6 +92,16 @@ export class CircuitBreaker {
     return this.state;
   }
 
+  getMetrics(): CircuitBreakerMetrics {
+    return {
+      state: this.getState(),
+      failures: this.failures,
+      successes: this.successes,
+      totalRequests: this.totalRequests,
+      lastFailureTime: this.lastFailureTime,
+    };
+  }
+
   async execute<T>(fn: () => Promise<T>): Promise<T> {
     const current = this.getState();
 
@@ -89,6 +109,7 @@ export class CircuitBreaker {
       throw new Error('Circuit breaker is open');
     }
 
+    this.totalRequests++;
     try {
       const result = await fn();
       this.onSuccess();
@@ -101,6 +122,7 @@ export class CircuitBreaker {
 
   private onSuccess(): void {
     this.failures = 0;
+    this.successes++;
     this.state = 'closed';
   }
 
@@ -115,6 +137,8 @@ export class CircuitBreaker {
   reset(): void {
     this.state = 'closed';
     this.failures = 0;
+    this.successes = 0;
+    this.totalRequests = 0;
     this.lastFailureTime = 0;
   }
 }
