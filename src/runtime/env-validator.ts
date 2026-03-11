@@ -1,5 +1,3 @@
-declare const process: { env: Record<string, string | undefined> };
-
 export interface EnvRule {
   name: string;
   required: boolean;

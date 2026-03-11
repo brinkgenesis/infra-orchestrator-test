@@ -7,7 +7,7 @@ export interface MiddlewareStack {
   logging: boolean;
 }
 
-export interface RequestContext {
+export interface MiddlewareRequestContext {
   requestId: string;
   startedAt: number;
   path: string;
@@ -37,13 +37,19 @@ export function createMiddlewareStack(
   };
 }
 
-export function createCorsHeaders(cors: CorsConfig): Record<string, string> {
-  return {
-    'Access-Control-Allow-Origin': cors.allowedOrigins.join(', '),
+export function createCorsHeaders(cors: CorsConfig, requestOrigin?: string): Record<string, string> {
+  const headers: Record<string, string> = {
     'Access-Control-Allow-Methods': cors.allowedMethods.join(', '),
-    'Access-Control-Allow-Headers': cors.allowedHeaders.join(', '),
-    'Access-Control-Max-Age': String(cors.maxAge),
+    'Access-Control-Allow-Headers': (cors.allowedHeaders ?? []).join(', '),
+    'Access-Control-Max-Age': String(cors.maxAge ?? 0),
   };
+  if (cors.allowedOrigins.includes('*')) {
+    headers['Access-Control-Allow-Origin'] = '*';
+  } else if (requestOrigin !== undefined && cors.allowedOrigins.includes(requestOrigin)) {
+    headers['Access-Control-Allow-Origin'] = requestOrigin;
+    headers['Vary'] = 'Origin';
+  }
+  return headers;
 }
 
 export function isRateLimited(
@@ -58,7 +64,7 @@ let counter = 0;
 export function createRequestContext(
   path: string,
   method: string
-): RequestContext {
+): MiddlewareRequestContext {
   counter += 1;
   return {
     requestId: `req-${Date.now()}-${counter}`,
@@ -68,7 +74,7 @@ export function createRequestContext(
   };
 }
 
-export function getElapsedMs(ctx: RequestContext): number {
+export function getElapsedMs(ctx: MiddlewareRequestContext): number {
   return Date.now() - ctx.startedAt;
 }
 
