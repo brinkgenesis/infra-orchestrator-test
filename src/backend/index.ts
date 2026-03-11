@@ -173,7 +173,7 @@ export interface RateLimitResult {
 export function createRateLimiter(config: RateLimitConfig) {
   const windows = new Map<string, { count: number; resetAt: number }>();
 
-  return function checkRate(clientId: string, now = Date.now()): RateLimitResult {
+  function checkRate(clientId: string, now = Date.now()): RateLimitResult {
     const entry = windows.get(clientId);
 
     if (!entry || now >= entry.resetAt) {
@@ -189,7 +189,24 @@ export function createRateLimiter(config: RateLimitConfig) {
       remaining: Math.max(0, config.maxRequests - entry.count),
       resetAt: entry.resetAt,
     };
+  }
+
+  checkRate.cleanup = function cleanup(now = Date.now()): number {
+    let removed = 0;
+    for (const [key, entry] of windows) {
+      if (now >= entry.resetAt) {
+        windows.delete(key);
+        removed++;
+      }
+    }
+    return removed;
   };
+
+  checkRate.size = function size(): number {
+    return windows.size;
+  };
+
+  return checkRate;
 }
 
 /** Builds a route URL with the given path segments and appends the query parameters as a query string. */
