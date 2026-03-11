@@ -169,8 +169,14 @@ export interface RateLimitResult {
   resetAt: number;
 }
 
+export type RateLimiterFn = {
+  (clientId: string, now?: number): RateLimitResult;
+  cleanup(now?: number): number;
+  size(): number;
+};
+
 /** Creates a stateful rate-limiter function that tracks request counts per client ID within sliding windows. */
-export function createRateLimiter(config: RateLimitConfig) {
+export function createRateLimiter(config: RateLimitConfig): RateLimiterFn {
   const windows = new Map<string, { count: number; resetAt: number }>();
 
   function checkRate(clientId: string, now = Date.now()): RateLimitResult {

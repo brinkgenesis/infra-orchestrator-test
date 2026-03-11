@@ -289,6 +289,33 @@ describe('createRateLimiter', () => {
     const rb = limiter('client-b', 1000);
     expect(rb.allowed).toBe(true);
   });
+
+  it('size returns the number of tracked clients', () => {
+    const limiter = createRateLimiter({ windowMs: 1000, maxRequests: 5 });
+    expect(limiter.size()).toBe(0);
+    limiter('client-1', 1000);
+    limiter('client-2', 1000);
+    expect(limiter.size()).toBe(2);
+  });
+
+  it('cleanup removes expired entries and returns count', () => {
+    const limiter = createRateLimiter({ windowMs: 1000, maxRequests: 5 });
+    limiter('client-1', 1000);
+    limiter('client-2', 1000);
+    expect(limiter.size()).toBe(2);
+    const removed = limiter.cleanup(2001); // after window expires (resetAt = 2000)
+    expect(removed).toBe(2);
+    expect(limiter.size()).toBe(0);
+  });
+
+  it('cleanup does not remove unexpired entries', () => {
+    const limiter = createRateLimiter({ windowMs: 1000, maxRequests: 5 });
+    limiter('client-1', 1000);
+    limiter('client-2', 1000);
+    const removed = limiter.cleanup(1500); // before window expires
+    expect(removed).toBe(0);
+    expect(limiter.size()).toBe(2);
+  });
 });
 
 describe('formatRoute', () => {
