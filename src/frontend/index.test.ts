@@ -21,6 +21,15 @@ import {
   buildAssetManifest,
   formatBuildSummary,
   createFrontendConfig,
+  shouldOpenBrowser,
+  resolveFrontendConfig,
+  getProxyEntries,
+  getBuildTarget,
+  hasSourcemaps,
+  isMinifyEnabled,
+  getDevProxyEntries,
+  resolveAssetUrl,
+  diffConfigs,
 } from './index';
 
 describe('frontend config', () => {
@@ -340,6 +349,95 @@ describe('frontend config', () => {
     const summary = formatBuildSummary(manifest);
     expect(summary).toContain('0 asset(s)');
     expect(summary).toContain('0 entry point(s)');
+  });
+
+  it('shouldOpenBrowser returns false by default', () => {
+    expect(shouldOpenBrowser()).toBe(false);
+  });
+
+  it('shouldOpenBrowser returns true when open is enabled', () => {
+    const cfg = createFrontendConfig({ dev: { open: true } });
+    expect(shouldOpenBrowser(cfg)).toBe(true);
+  });
+
+  it('isMinifyEnabled returns true by default', () => {
+    expect(isMinifyEnabled()).toBe(true);
+  });
+
+  it('isMinifyEnabled respects custom config', () => {
+    const cfg = createFrontendConfig({ build: { minify: false } });
+    expect(isMinifyEnabled(cfg)).toBe(false);
+  });
+
+  it('getDevProxyEntries returns empty array when no proxies', () => {
+    expect(getDevProxyEntries()).toEqual([]);
+  });
+
+  it('getDevProxyEntries returns structured proxy entries', () => {
+    const cfg = createFrontendConfig({ dev: { proxy: { '/api': 'http://localhost:8080' } } });
+    const entries = getDevProxyEntries(cfg);
+    expect(entries).toEqual([{ from: '/api', to: 'http://localhost:8080' }]);
+  });
+
+  it('resolveAssetUrl combines base path with asset path', () => {
+    expect(resolveAssetUrl('/cdn', 'main.js', 'abc123')).toBe('/cdn/dist/main.abc123.js');
+  });
+
+  it('resolveAssetUrl strips trailing slashes from base', () => {
+    expect(resolveAssetUrl('/static/', 'style.css', 'def')).toBe('/static/dist/style.def.css');
+  });
+
+  it('diffConfigs returns empty array for identical configs', () => {
+    const cfg = createFrontendConfig();
+    expect(diffConfigs(cfg, cfg)).toEqual([]);
+  });
+
+  it('diffConfigs detects changed fields', () => {
+    const a = createFrontendConfig();
+    const b = createFrontendConfig({ dev: { port: 8080 }, build: { sourcemap: false } });
+    const diffs = diffConfigs(a, b);
+    expect(diffs).toContain('dev.port: 3000 -> 8080');
+    expect(diffs).toContain('build.sourcemap: true -> false');
+    expect(diffs).toHaveLength(2);
+  });
+
+  it('resolveFrontendConfig returns default config when no overrides', () => {
+    const cfg = resolveFrontendConfig();
+    expect(cfg.dev.port).toBe(3000);
+    expect(cfg.build.outDir).toBe('dist');
+  });
+
+  it('resolveFrontendConfig applies overrides', () => {
+    const cfg = resolveFrontendConfig({ dev: { port: 7000 } });
+    expect(cfg.dev.port).toBe(7000);
+    expect(cfg.dev.hmr).toBe(true);
+  });
+
+  it('getProxyEntries returns empty array for default config', () => {
+    expect(getProxyEntries()).toEqual([]);
+  });
+
+  it('getProxyEntries returns entries from config proxy', () => {
+    const cfg = createFrontendConfig({ dev: { proxy: { '/api': 'http://localhost:8080' } } });
+    expect(getProxyEntries(cfg)).toEqual([['/api', 'http://localhost:8080']]);
+  });
+
+  it('getBuildTarget returns default target', () => {
+    expect(getBuildTarget()).toBe('ES2022');
+  });
+
+  it('getBuildTarget respects custom config', () => {
+    const cfg = createFrontendConfig({ build: { target: 'ES2020' } });
+    expect(getBuildTarget(cfg)).toBe('ES2020');
+  });
+
+  it('hasSourcemaps returns true by default', () => {
+    expect(hasSourcemaps()).toBe(true);
+  });
+
+  it('hasSourcemaps returns false when disabled', () => {
+    const cfg = createFrontendConfig({ build: { sourcemap: false } });
+    expect(hasSourcemaps(cfg)).toBe(false);
   });
 });
 

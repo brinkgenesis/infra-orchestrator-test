@@ -206,6 +206,29 @@ describe('CircuitBreaker', () => {
     expect(cb.getState()).toBe('closed');
   });
 
+  it('tracks metrics across executions', async () => {
+    const cb = new CircuitBreaker({ failureThreshold: 3, resetTimeoutMs: 1000 });
+    const metrics0 = cb.getMetrics();
+    expect(metrics0.state).toBe('closed');
+    expect(metrics0.totalRequests).toBe(0);
+    expect(metrics0.successes).toBe(0);
+    expect(metrics0.failures).toBe(0);
+
+    await cb.execute(() => Promise.resolve('ok'));
+    await cb.execute(() => Promise.resolve('ok'));
+    const metrics1 = cb.getMetrics();
+    expect(metrics1.totalRequests).toBe(2);
+    expect(metrics1.successes).toBe(2);
+    expect(metrics1.failures).toBe(0);
+
+    await expect(cb.execute(() => Promise.reject(new Error('x')))).rejects.toThrow();
+    const metrics2 = cb.getMetrics();
+    expect(metrics2.totalRequests).toBe(3);
+    expect(metrics2.successes).toBe(2);
+    expect(metrics2.failures).toBe(1);
+    expect(metrics2.lastFailureTime).toBeGreaterThan(0);
+  });
+
   it('resets to closed state via reset()', async () => {
     const cb = new CircuitBreaker({ failureThreshold: 1, resetTimeoutMs: 60000 });
     await expect(cb.execute(() => Promise.reject(new Error('x')))).rejects.toThrow();

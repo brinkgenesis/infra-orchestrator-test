@@ -108,6 +108,23 @@ export class Server {
       timestamp: new Date().toISOString(),
     };
   }
+
+  getRouteCount(): number {
+    return this.routes.length;
+  }
+
+  getMiddlewareCount(): number {
+    return this.middlewares.length;
+  }
+
+  getStatus(): { running: boolean; uptime: number; routes: number; middlewares: number } {
+    return {
+      running: this.isRunning(),
+      uptime: this.getUptime(),
+      routes: this.getRouteCount(),
+      middlewares: this.getMiddlewareCount(),
+    };
+  }
 }
 
 export function createServer(config?: AppConfig): Server {

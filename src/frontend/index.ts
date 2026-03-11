@@ -200,4 +200,42 @@ export function hasSourcemaps(cfg: FrontendConfig = config): boolean {
   return cfg.build.sourcemap;
 }
 
+export function shouldOpenBrowser(cfg: FrontendConfig = config): boolean {
+  return cfg.dev.open;
+}
+
+export function isMinifyEnabled(cfg: FrontendConfig = config): boolean {
+  return cfg.build.minify;
+}
+
+export function getDevProxyEntries(cfg: FrontendConfig = config): Array<{ from: string; to: string }> {
+  return Object.entries(cfg.dev.proxy).map(([from, to]) => ({ from, to }));
+}
+
+export function resolveAssetUrl(
+  basePath: string,
+  filePath: string,
+  hash: string,
+  cfg: FrontendConfig = config,
+): string {
+  const base = basePath.replace(/\/+$/, '');
+  const assetPath = getAssetPath(filePath, hash, cfg);
+  return `${base}/${assetPath}`;
+}
+
+export function diffConfigs(
+  a: FrontendConfig,
+  b: FrontendConfig,
+): string[] {
+  const diffs: string[] = [];
+  if (a.dev.port !== b.dev.port) diffs.push(`dev.port: ${a.dev.port} -> ${b.dev.port}`);
+  if (a.dev.hmr !== b.dev.hmr) diffs.push(`dev.hmr: ${a.dev.hmr} -> ${b.dev.hmr}`);
+  if (a.dev.open !== b.dev.open) diffs.push(`dev.open: ${a.dev.open} -> ${b.dev.open}`);
+  if (a.build.outDir !== b.build.outDir) diffs.push(`build.outDir: ${a.build.outDir} -> ${b.build.outDir}`);
+  if (a.build.sourcemap !== b.build.sourcemap) diffs.push(`build.sourcemap: ${a.build.sourcemap} -> ${b.build.sourcemap}`);
+  if (a.build.minify !== b.build.minify) diffs.push(`build.minify: ${a.build.minify} -> ${b.build.minify}`);
+  if (a.build.target !== b.build.target) diffs.push(`build.target: ${a.build.target} -> ${b.build.target}`);
+  return diffs;
+}
+
 export { config as frontendConfig, createFrontendConfig };
