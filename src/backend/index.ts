@@ -28,6 +28,19 @@ export function isProduction(config: AppConfig = appDefaultConfig): boolean {
   return config.env === 'production';
 }
 
+export interface CorsConfig {
+  allowedOrigins: string[];
+  allowedMethods: string[];
+  allowedHeaders?: string[];
+  allowCredentials?: boolean;
+  maxAge?: number;
+}
+
+export interface RateLimitConfig {
+  windowMs: number;
+  maxRequests: number;
+}
+
 export interface BackendConfig {
   server: {
     port: number;
@@ -37,6 +50,8 @@ export interface BackendConfig {
     basePath: string;
     versioned: boolean;
   };
+  cors?: CorsConfig;
+  rateLimit?: RateLimitConfig;
 }
 
 export interface HealthCheckResponse {
@@ -136,11 +151,6 @@ export function mergeConfig(overrides: Partial<{
   };
 }
 
-export interface RateLimitConfig {
-  windowMs: number;
-  maxRequests: number;
-}
-
 export interface RateLimitResult {
   allowed: boolean;
   remaining: number;
@@ -190,12 +200,6 @@ export function isHealthy(health: HealthCheckResponse): boolean {
   return health.status === 'ok';
 }
 
-export interface CorsConfig {
-  allowedOrigins: string[];
-  allowedMethods: string[];
-  allowCredentials: boolean;
-}
-
 export interface MiddlewareConfig {
   cors: CorsConfig;
   rateLimit: RateLimitConfig;
@@ -206,7 +210,9 @@ const defaultMiddlewareConfig: MiddlewareConfig = {
   cors: {
     allowedOrigins: ['*'],
     allowedMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
     allowCredentials: false,
+    maxAge: 86400,
   },
   rateLimit: {
     windowMs: 60_000,
