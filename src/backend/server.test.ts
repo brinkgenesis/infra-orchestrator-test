@@ -94,6 +94,40 @@ describe('Server', () => {
     expect(server).toBeInstanceOf(Server);
     expect(server.getConfig()).toEqual(defaultConfig);
   });
+
+  it('should return route count', () => {
+    const server = new Server();
+    expect(server.getRouteCount()).toBe(0);
+    server.addRoute({ method: 'GET', path: '/a', handler: 'a' });
+    server.addRoute({ method: 'POST', path: '/b', handler: 'b' });
+    expect(server.getRouteCount()).toBe(2);
+  });
+
+  it('should return middleware count', () => {
+    const server = new Server();
+    expect(server.getMiddlewareCount()).toBe(0);
+    server.use((_req, _res, next) => next());
+    expect(server.getMiddlewareCount()).toBe(1);
+  });
+
+  it('should return comprehensive status', () => {
+    const server = new Server();
+    const statusBefore = server.getStatus();
+    expect(statusBefore.running).toBe(false);
+    expect(statusBefore.uptime).toBe(0);
+    expect(statusBefore.routes).toBe(0);
+    expect(statusBefore.middlewares).toBe(0);
+
+    server.addRoute({ method: 'GET', path: '/test', handler: 'test' });
+    server.use((_req, _res, next) => next());
+    server.start();
+
+    const statusAfter = server.getStatus();
+    expect(statusAfter.running).toBe(true);
+    expect(statusAfter.uptime).toBeGreaterThanOrEqual(0);
+    expect(statusAfter.routes).toBe(1);
+    expect(statusAfter.middlewares).toBe(1);
+  });
 });
 
 describe('Middleware', () => {
