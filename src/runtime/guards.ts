@@ -13,7 +13,13 @@ export function assertDefined<T>(
   }
 }
 
-export function assertNonEmpty(value: string, name: string): asserts value is string {
+export function assertNonEmpty(value: unknown, name: string): asserts value is string {
+  if (value === null || value === undefined) {
+    throw new Error(`Expected ${name} to be a non-empty string, got ${String(value)}`);
+  }
+  if (typeof value !== 'string') {
+    throw new Error(`Expected ${name} to be a string, got ${typeof value}`);
+  }
   if (value.length === 0) {
     throw new Error(`Expected ${name} to be non-empty`);
   }
