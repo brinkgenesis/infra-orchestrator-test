@@ -266,4 +266,38 @@ export function diffConfigs(
   return diffs;
 }
 
+/** Returns a complete dev environment descriptor combining server config, banner, proxy entries, and validation errors. */
+export function createDevEnvironment(cfg: FrontendConfig = config): {
+  server: { url: string; port: number; hmr: boolean };
+  banner: string;
+  proxy: Array<{ from: string; to: string }>;
+  errors: string[];
+} {
+  return {
+    server: getDevServerConfig(cfg),
+    banner: formatDevBanner(cfg),
+    proxy: getDevProxyEntries(cfg),
+    errors: validateFrontendConfig(cfg),
+  };
+}
+
+/** Returns a complete build environment descriptor combining build config, target, asset manifest, and summary. */
+export function createBuildEnvironment(
+  entries: Array<{ src: string; hash: string; isEntry?: boolean }>,
+  cfg: FrontendConfig = config,
+): {
+  config: { outDir: string; sourcemap: boolean };
+  target: string;
+  manifest: AssetManifest;
+  summary: string;
+} {
+  const manifest = buildAssetManifest(entries, cfg);
+  return {
+    config: getBuildConfig(cfg),
+    target: getBuildTarget(cfg),
+    manifest,
+    summary: formatBuildSummary(manifest, cfg),
+  };
+}
+
 export { config as frontendConfig, createFrontendConfig };

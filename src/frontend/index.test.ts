@@ -30,6 +30,8 @@ import {
   getDevProxyEntries,
   resolveAssetUrl,
   diffConfigs,
+  createDevEnvironment,
+  createBuildEnvironment,
 } from './index';
 
 describe('frontend config', () => {
@@ -411,6 +413,44 @@ describe('frontend config', () => {
     const cfg = resolveFrontendConfig({ dev: { port: 7000 } });
     expect(cfg.dev.port).toBe(7000);
     expect(cfg.dev.hmr).toBe(true);
+  });
+
+  it('createDevEnvironment returns complete dev descriptor', () => {
+    const env = createDevEnvironment();
+    expect(env.server.url).toBe('http://localhost:3000');
+    expect(env.server.port).toBe(3000);
+    expect(env.server.hmr).toBe(true);
+    expect(env.banner).toContain('HMR: enabled');
+    expect(env.proxy).toEqual([]);
+    expect(env.errors).toEqual([]);
+  });
+
+  it('createDevEnvironment includes proxy entries and validation errors', () => {
+    const cfg = createFrontendConfig({ dev: { port: 0, proxy: { '/api': 'http://localhost:8080' } } });
+    const env = createDevEnvironment(cfg);
+    expect(env.proxy).toEqual([{ from: '/api', to: 'http://localhost:8080' }]);
+    expect(env.errors.length).toBeGreaterThan(0);
+  });
+
+  it('createBuildEnvironment returns complete build descriptor', () => {
+    const env = createBuildEnvironment([
+      { src: 'main.js', hash: 'abc', isEntry: true },
+      { src: 'style.css', hash: 'def' },
+    ]);
+    expect(env.config.outDir).toBe('dist');
+    expect(env.config.sourcemap).toBe(true);
+    expect(env.target).toBe('ES2022');
+    expect(env.manifest['main.js']!.file).toBe('dist/main.abc.js');
+    expect(env.summary).toContain('2 asset(s)');
+  });
+
+  it('createBuildEnvironment respects custom config', () => {
+    const cfg = createFrontendConfig({ build: { outDir: 'build', sourcemap: false, target: 'ES2020' } });
+    const env = createBuildEnvironment([{ src: 'app.js', hash: 'xyz', isEntry: true }], cfg);
+    expect(env.config.outDir).toBe('build');
+    expect(env.target).toBe('ES2020');
+    expect(env.manifest['app.js']!.file).toBe('build/app.xyz.js');
+    expect(env.summary).toContain('sourcemaps off');
   });
 
   it('getProxyEntries returns empty array for default config', () => {
