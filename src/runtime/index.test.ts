@@ -659,6 +659,36 @@ describe('RateLimiter edge cases', () => {
     rl.tryAcquire(1);
     await expect(rl.acquire(1)).rejects.toThrow('refillRate must be greater than 0');
   });
+
+  it('constructor throws for negative maxTokens', () => {
+    expect(() => new RateLimiter({ maxTokens: -1, refillRate: 1 })).toThrow(
+      'maxTokens must be a positive finite number',
+    );
+  });
+
+  it('constructor throws for zero maxTokens', () => {
+    expect(() => new RateLimiter({ maxTokens: 0, refillRate: 1 })).toThrow(
+      'maxTokens must be a positive finite number',
+    );
+  });
+
+  it('constructor throws for non-finite maxTokens', () => {
+    expect(() => new RateLimiter({ maxTokens: Infinity, refillRate: 1 })).toThrow(
+      'maxTokens must be a positive finite number',
+    );
+  });
+
+  it('constructor throws for negative refillRate', () => {
+    expect(() => new RateLimiter({ maxTokens: 10, refillRate: -5 })).toThrow(
+      'refillRate must be a non-negative finite number',
+    );
+  });
+
+  it('constructor throws for non-finite refillRate', () => {
+    expect(() => new RateLimiter({ maxTokens: 10, refillRate: Infinity })).toThrow(
+      'refillRate must be a non-negative finite number',
+    );
+  });
 });
 
 describe('withRetryAndTimeout', () => {

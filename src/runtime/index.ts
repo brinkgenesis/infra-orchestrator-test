@@ -251,6 +251,12 @@ export class RateLimiter {
 
   /** Initializes the rate limiter with the given max token capacity and refill rate. */
   constructor(opts: RateLimiterOptions) {
+    if (opts.maxTokens <= 0 || !Number.isFinite(opts.maxTokens)) {
+      throw new Error('maxTokens must be a positive finite number');
+    }
+    if (opts.refillRate < 0 || !Number.isFinite(opts.refillRate)) {
+      throw new Error('refillRate must be a non-negative finite number');
+    }
     this.maxTokens = opts.maxTokens;
     this.refillRate = opts.refillRate;
     this.tokens = opts.maxTokens;
