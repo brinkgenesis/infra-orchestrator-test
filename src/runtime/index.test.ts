@@ -314,6 +314,49 @@ describe('Bulkhead', () => {
     expect(bh.getRunning()).toBe(0);
     expect(bh.getQueueLength()).toBe(0);
   });
+
+  it('drain() resolves immediately when idle', async () => {
+    const bh = new Bulkhead(2);
+    await bh.drain(); // should not hang
+  });
+
+  it('drain() waits for in-flight tasks to complete', async () => {
+    const bh = new Bulkhead(2);
+    let finished = false;
+
+    bh.execute(
+      () =>
+        new Promise<void>((resolve) => {
+          setTimeout(() => {
+            finished = true;
+            resolve();
+          }, 30);
+        }),
+    );
+
+    await bh.drain();
+    expect(finished).toBe(true);
+    expect(bh.getRunning()).toBe(0);
+  });
+
+  it('drain() waits for queued tasks too', async () => {
+    const bh = new Bulkhead(1, 10);
+    const order: number[] = [];
+
+    const t1 = bh.execute(() => new Promise<void>((r) => { setTimeout(() => { order.push(1); r(); }, 10); }));
+    const t2 = bh.execute(() => new Promise<void>((r) => { setTimeout(() => { order.push(2); r(); }, 10); }));
+
+    // Ensure both tasks are tracked before draining
+    expect(bh.getQueueLength()).toBe(1);
+
+    await bh.drain();
+    expect(order).toEqual([1, 2]);
+    expect(bh.getRunning()).toBe(0);
+    expect(bh.getQueueLength()).toBe(0);
+
+    // Clean up floating promises
+    await Promise.all([t1, t2]);
+  });
 });
 
 describe('RateLimiter', () => {
@@ -356,6 +399,22 @@ describe('RateLimiter', () => {
     const rl = new RateLimiter({ maxTokens: 5, refillRate: 1000 });
     await new Promise((r) => setTimeout(r, 50));
     expect(rl.getTokens()).toBeLessThanOrEqual(5);
+  });
+
+  it('reset() restores tokens to full capacity', () => {
+    const rl = new RateLimiter({ maxTokens: 10, refillRate: 1 });
+    rl.tryAcquire(8);
+    expect(rl.getTokens()).toBeCloseTo(2, 0);
+    rl.reset();
+    expect(rl.getTokens()).toBeCloseTo(10, 0);
+  });
+
+  it('reset() allows acquire after draining', () => {
+    const rl = new RateLimiter({ maxTokens: 3, refillRate: 0 });
+    expect(rl.tryAcquire(3)).toBe(true);
+    expect(rl.tryAcquire(1)).toBe(false);
+    rl.reset();
+    expect(rl.tryAcquire(3)).toBe(true);
   });
 });
 
