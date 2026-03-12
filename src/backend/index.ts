@@ -112,7 +112,7 @@ export function createConfigFromEnv(env: Record<string, string | undefined>): Ba
   return {
     server: {
       port: isValidPort ? parsedPort : defaultConfig.server.port,
-      host: env['HOST'] ?? defaultConfig.server.host,
+      host: env['HOST'] || defaultConfig.server.host,
     },
     api: {
       basePath: env['API_BASE_PATH'] ?? defaultConfig.api.basePath,

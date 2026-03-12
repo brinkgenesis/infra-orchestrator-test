@@ -126,6 +126,11 @@ describe('createConfigFromEnv', () => {
     expect(createConfigFromEnv({ PORT: '-1' }).server.port).toBe(8080);
     expect(createConfigFromEnv({ PORT: '70000' }).server.port).toBe(8080);
   });
+
+  it('falls back to default host when HOST is empty string', () => {
+    const cfg = createConfigFromEnv({ HOST: '' });
+    expect(cfg.server.host).toBe('localhost');
+  });
 });
 
 describe('buildRoute', () => {
