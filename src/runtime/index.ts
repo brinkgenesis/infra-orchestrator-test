@@ -232,8 +232,30 @@ export class Bulkhead {
       const next = this.queue.shift();
       if (next !== undefined) {
         next();
+      } else {
+        this.notifyDrain();
       }
     }
+  }
+
+  private drainResolvers: Array<() => void> = [];
+
+  private notifyDrain(): void {
+    if (this.running === 0 && this.queue.length === 0) {
+      for (const resolve of this.drainResolvers.splice(0)) {
+        resolve();
+      }
+    }
+  }
+
+  /** Returns a promise that resolves when all in-flight and queued tasks have completed. Resolves immediately if idle. */
+  async drain(): Promise<void> {
+    if (this.running === 0 && this.queue.length === 0) {
+      return;
+    }
+    return new Promise<void>((resolve) => {
+      this.drainResolvers.push(resolve);
+    });
   }
 }
 
@@ -251,6 +273,12 @@ export class RateLimiter {
 
   /** Initializes the rate limiter with the given max token capacity and refill rate. */
   constructor(opts: RateLimiterOptions) {
+    if (opts.maxTokens <= 0 || !Number.isFinite(opts.maxTokens)) {
+      throw new Error('maxTokens must be a positive finite number');
+    }
+    if (opts.refillRate < 0 || !Number.isFinite(opts.refillRate)) {
+      throw new Error('refillRate must be a non-negative finite number');
+    }
     this.maxTokens = opts.maxTokens;
     this.refillRate = opts.refillRate;
     this.tokens = opts.maxTokens;
@@ -291,6 +319,12 @@ export class RateLimiter {
       const waitMs = Math.max(1, (deficit / this.refillRate) * 1000);
       await new Promise((r) => setTimeout(r, waitMs));
     }
+  }
+
+  /** Resets the rate limiter to full capacity. */
+  reset(): void {
+    this.tokens = this.maxTokens;
+    this.lastRefill = Date.now();
   }
 }
 
