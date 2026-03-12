@@ -259,6 +259,9 @@ export function diffConfigs(
   if (a.dev.port !== b.dev.port) diffs.push(`dev.port: ${a.dev.port} -> ${b.dev.port}`);
   if (a.dev.hmr !== b.dev.hmr) diffs.push(`dev.hmr: ${a.dev.hmr} -> ${b.dev.hmr}`);
   if (a.dev.open !== b.dev.open) diffs.push(`dev.open: ${a.dev.open} -> ${b.dev.open}`);
+  const proxyA = JSON.stringify(a.dev.proxy);
+  const proxyB = JSON.stringify(b.dev.proxy);
+  if (proxyA !== proxyB) diffs.push(`dev.proxy: ${proxyA} -> ${proxyB}`);
   if (a.build.outDir !== b.build.outDir) diffs.push(`build.outDir: ${a.build.outDir} -> ${b.build.outDir}`);
   if (a.build.sourcemap !== b.build.sourcemap) diffs.push(`build.sourcemap: ${a.build.sourcemap} -> ${b.build.sourcemap}`);
   if (a.build.minify !== b.build.minify) diffs.push(`build.minify: ${a.build.minify} -> ${b.build.minify}`);

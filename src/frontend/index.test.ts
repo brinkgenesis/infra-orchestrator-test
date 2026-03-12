@@ -403,6 +403,20 @@ describe('frontend config', () => {
     expect(diffs).toHaveLength(2);
   });
 
+  it('diffConfigs detects proxy changes', () => {
+    const a = createFrontendConfig();
+    const b = createFrontendConfig({ dev: { proxy: { '/api': 'http://localhost:9000' } } });
+    const diffs = diffConfigs(a, b);
+    expect(diffs).toHaveLength(1);
+    expect(diffs[0]).toContain('dev.proxy');
+  });
+
+  it('diffConfigs ignores identical proxies', () => {
+    const a = createFrontendConfig({ dev: { proxy: { '/api': 'http://localhost:8080' } } });
+    const b = createFrontendConfig({ dev: { proxy: { '/api': 'http://localhost:8080' } } });
+    expect(diffConfigs(a, b)).toEqual([]);
+  });
+
   it('resolveFrontendConfig returns default config when no overrides', () => {
     const cfg = resolveFrontendConfig();
     expect(cfg.dev.port).toBe(3000);
