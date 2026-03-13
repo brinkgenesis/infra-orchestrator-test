@@ -192,4 +192,36 @@ export function mergeConfig(
   return merged;
 }
 
+const VALID_HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'] as const;
+export type HttpMethod = (typeof VALID_HTTP_METHODS)[number];
+
+/** Normalises a base path by ensuring it starts with `/` and has no trailing slash. */
+export function normalizeBasePath(basePath: string): string {
+  let p = basePath.trim();
+  if (!p.startsWith('/')) {
+    p = `/${p}`;
+  }
+  // Remove trailing slashes (but keep a bare "/")
+  while (p.length > 1 && p.endsWith('/')) {
+    p = p.slice(0, -1);
+  }
+  return p;
+}
+
+/** Returns true when the given string is a standard HTTP method. */
+export function isValidHttpMethod(method: string): method is HttpMethod {
+  return VALID_HTTP_METHODS.includes(method.toUpperCase() as HttpMethod);
+}
+
+/** Extracts the path portion (after the origin) from each route in a namespace. */
+export function listRoutePaths(ns: RouteNamespace): string[] {
+  return ns.routes.map((route) => {
+    try {
+      return new URL(route).pathname;
+    } catch {
+      return route;
+    }
+  });
+}
+
 export { defaultConfig as backendConfig };
