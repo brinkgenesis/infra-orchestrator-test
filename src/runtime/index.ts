@@ -131,7 +131,7 @@ export class CircuitBreaker {
     const current = this.getState();
 
     if (current === 'open') {
-      throw new Error('Circuit breaker is open');
+      throw new CircuitBreakerOpenError();
     }
 
     this.totalRequests++;
@@ -174,14 +174,41 @@ export interface TimeoutOptions {
   message?: string;
 }
 
-/** Executes the given async function and rejects with a timeout error if it does not complete in time. */
+/** Error thrown when an operation exceeds its configured timeout. */
+export class TimeoutError extends Error {
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number, message?: string) {
+    super(message ?? `Operation timed out after ${timeoutMs}ms`);
+    this.name = 'TimeoutError';
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+/** Error thrown when the circuit breaker is open and rejecting calls. */
+export class CircuitBreakerOpenError extends Error {
+  constructor(message?: string) {
+    super(message ?? 'Circuit breaker is open');
+    this.name = 'CircuitBreakerOpenError';
+  }
+}
+
+/** Error thrown when a bulkhead's queue is full and cannot accept more work. */
+export class BulkheadFullError extends Error {
+  constructor(message?: string) {
+    super(message ?? 'Bulkhead queue is full');
+    this.name = 'BulkheadFullError';
+  }
+}
+
+/** Executes the given async function and rejects with a TimeoutError if it does not complete in time. */
 export async function withTimeout<T>(
   fn: () => Promise<T>,
   opts: TimeoutOptions,
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error(opts.message ?? `Operation timed out after ${opts.timeoutMs}ms`));
+      reject(new TimeoutError(opts.timeoutMs, opts.message));
     }, opts.timeoutMs);
 
     fn().then(
@@ -239,7 +266,7 @@ export class Bulkhead {
   async execute<T>(fn: () => Promise<T>): Promise<T> {
     if (this.running >= this.maxConcurrent) {
       if (this.queue.length >= this.maxQueue) {
-        throw new Error('Bulkhead queue is full');
+        throw new BulkheadFullError();
       }
       await new Promise<void>((resolve) => {
         this.queue.push(resolve);
@@ -665,4 +692,69 @@ export class ResiliencePipeline<T> {
 
     return wrapped();
   }
+}
+
+export interface HedgingOptions {
+  delayMs: number;
+  maxAttempts?: number;
+}
+
+/**
+ * Hedged requests: launches the primary call immediately and, if it hasn't
+ * resolved after `delayMs`, fires a secondary (hedged) attempt. Returns
+ * whichever resolves first. If all attempts fail, throws the last error.
+ */
+export async function withHedging<T>(
+  fn: () => Promise<T>,
+  opts: HedgingOptions,
+): Promise<T> {
+  const maxAttempts = opts.maxAttempts ?? 2;
+  if (maxAttempts < 1) {
+    throw new Error('maxAttempts must be at least 1');
+  }
+  if (maxAttempts === 1) {
+    return fn();
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    let pending = 0;
+    let lastError: unknown;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+
+    const attempt = () => {
+      pending++;
+      fn().then(
+        (result) => {
+          if (!settled) {
+            settled = true;
+            for (const t of timers) clearTimeout(t);
+            resolve(result);
+          }
+        },
+        (err) => {
+          lastError = err;
+          pending--;
+          if (pending === 0 && !settled) {
+            settled = true;
+            for (const t of timers) clearTimeout(t);
+            reject(lastError);
+          }
+        },
+      );
+    };
+
+    // Launch the primary attempt immediately
+    attempt();
+
+    // Schedule hedged attempts
+    for (let i = 1; i < maxAttempts; i++) {
+      const timer = setTimeout(() => {
+        if (!settled) {
+          attempt();
+        }
+      }, opts.delayMs * i);
+      timers.push(timer);
+    }
+  });
 }

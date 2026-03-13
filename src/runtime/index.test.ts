@@ -16,6 +16,10 @@ import {
   isRetryableError,
   SlidingWindowRateLimiter,
   ResiliencePipeline,
+  TimeoutError,
+  CircuitBreakerOpenError,
+  BulkheadFullError,
+  withHedging,
 } from './index';
 import type { CircuitState } from './index';
 
@@ -172,10 +176,12 @@ describe('CircuitBreaker', () => {
     expect(cb.getState()).toBe('open');
   });
 
-  it('rejects calls when open', async () => {
+  it('rejects calls when open with CircuitBreakerOpenError', async () => {
     const cb = new CircuitBreaker({ failureThreshold: 1, resetTimeoutMs: 60000 });
     await expect(cb.execute(() => Promise.reject(new Error('x')))).rejects.toThrow();
-    await expect(cb.execute(() => Promise.resolve('ok'))).rejects.toThrow('Circuit breaker is open');
+    const err = await cb.execute(() => Promise.resolve('ok')).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CircuitBreakerOpenError);
+    expect((err as CircuitBreakerOpenError).message).toBe('Circuit breaker is open');
   });
 
   it('transitions to half-open after timeout', async () => {
@@ -255,13 +261,14 @@ describe('withTimeout', () => {
     expect(result).toBe('fast');
   });
 
-  it('rejects if operation exceeds timeout', async () => {
-    await expect(
-      withTimeout(
-        () => new Promise((r) => setTimeout(r, 200)),
-        { timeoutMs: 10 },
-      ),
-    ).rejects.toThrow('Operation timed out after 10ms');
+  it('rejects with TimeoutError if operation exceeds timeout', async () => {
+    const err = await withTimeout(
+      () => new Promise((r) => setTimeout(r, 200)),
+      { timeoutMs: 10 },
+    ).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(TimeoutError);
+    expect((err as TimeoutError).timeoutMs).toBe(10);
+    expect((err as TimeoutError).message).toBe('Operation timed out after 10ms');
   });
 
   it('uses custom timeout message', async () => {
@@ -291,14 +298,16 @@ describe('Bulkhead', () => {
     expect(bh.getRunning()).toBe(0);
   });
 
-  it('rejects when queue is full', async () => {
+  it('rejects with BulkheadFullError when queue is full', async () => {
     const bh = new Bulkhead(1, 0);
     const blocker = new Promise<string>((resolve) => {
       setTimeout(() => resolve('done'), 100);
     });
     const first = bh.execute(() => blocker);
 
-    await expect(bh.execute(() => Promise.resolve('x'))).rejects.toThrow('Bulkhead queue is full');
+    const err = await bh.execute(() => Promise.resolve('x')).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BulkheadFullError);
+    expect((err as BulkheadFullError).message).toBe('Bulkhead queue is full');
     await first;
   });
 
