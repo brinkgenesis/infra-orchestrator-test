@@ -11,7 +11,9 @@ import {
   RateLimiter,
   GracefulShutdown,
   DeadlineContext,
+  withFallback,
 } from './index';
+import type { CircuitState } from './index';
 
 describe('computeBackoff', () => {
   it('returns exponentially increasing delays', () => {
@@ -828,5 +830,77 @@ describe('withRetryAndTimeout', () => {
         { timeoutMs: 10, message: 'too slow' },
       ),
     ).rejects.toThrow('too slow');
+  });
+});
+
+describe('withFallback', () => {
+  it('returns the primary result on success', async () => {
+    const result = await withFallback(() => Promise.resolve('primary'), 'backup');
+    expect(result).toBe('primary');
+  });
+
+  it('returns the static fallback on failure', async () => {
+    const result = await withFallback(() => Promise.reject(new Error('fail')), 'backup');
+    expect(result).toBe('backup');
+  });
+
+  it('calls fallback function with the error', async () => {
+    const result = await withFallback(
+      () => Promise.reject(new Error('oops')),
+      (err) => `recovered: ${(err as Error).message}`,
+    );
+    expect(result).toBe('recovered: oops');
+  });
+
+  it('returns fallback for non-Error throws', async () => {
+    const result = await withFallback(
+      () => Promise.reject('string error'),
+      'safe',
+    );
+    expect(result).toBe('safe');
+  });
+});
+
+describe('CircuitBreaker onStateChange', () => {
+  it('fires callback on state transitions', async () => {
+    const transitions: Array<{ from: CircuitState; to: CircuitState }> = [];
+    const cb = new CircuitBreaker({
+      failureThreshold: 1,
+      resetTimeoutMs: 50,
+      onStateChange: (from, to) => transitions.push({ from, to }),
+    });
+
+    // closed -> open
+    await expect(cb.execute(() => Promise.reject(new Error('x')))).rejects.toThrow();
+    expect(transitions).toEqual([{ from: 'closed', to: 'open' }]);
+
+    // open -> half-open (via getState after timeout)
+    await new Promise((r) => setTimeout(r, 60));
+    cb.getState();
+    expect(transitions).toEqual([
+      { from: 'closed', to: 'open' },
+      { from: 'open', to: 'half-open' },
+    ]);
+
+    // half-open -> closed (on success)
+    await cb.execute(() => Promise.resolve('ok'));
+    expect(transitions).toEqual([
+      { from: 'closed', to: 'open' },
+      { from: 'open', to: 'half-open' },
+      { from: 'half-open', to: 'closed' },
+    ]);
+  });
+
+  it('does not fire callback when state does not change', async () => {
+    const spy = vi.fn();
+    const cb = new CircuitBreaker({
+      failureThreshold: 3,
+      resetTimeoutMs: 1000,
+      onStateChange: spy,
+    });
+
+    // success while closed -> stays closed, no transition
+    await cb.execute(() => Promise.resolve('ok'));
+    expect(spy).not.toHaveBeenCalled();
   });
 });

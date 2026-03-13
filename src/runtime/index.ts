@@ -17,9 +17,10 @@ export interface RetryOptions {
 export interface CircuitBreakerOptions {
   failureThreshold: number;
   resetTimeoutMs: number;
+  onStateChange?: (from: CircuitState, to: CircuitState) => void;
 }
 
-type CircuitState = 'closed' | 'open' | 'half-open';
+export type CircuitState = 'closed' | 'open' | 'half-open';
 
 const DEFAULT_RETRY: RetryOptions = {
   maxAttempts: 3,
@@ -80,6 +81,7 @@ export class CircuitBreaker {
   private lastFailureTime = 0;
   private readonly failureThreshold: number;
   private readonly resetTimeoutMs: number;
+  private readonly onStateChange: ((from: CircuitState, to: CircuitState) => void) | undefined;
 
   /** Initializes the circuit breaker with the given failure threshold and reset timeout. */
   constructor(opts: CircuitBreakerOptions) {
@@ -91,6 +93,15 @@ export class CircuitBreaker {
     }
     this.failureThreshold = opts.failureThreshold;
     this.resetTimeoutMs = opts.resetTimeoutMs;
+    this.onStateChange = opts.onStateChange;
+  }
+
+  private transition(to: CircuitState): void {
+    if (this.state !== to) {
+      const from = this.state;
+      this.state = to;
+      this.onStateChange?.(from, to);
+    }
   }
 
   /** Returns the current circuit state, transitioning from open to half-open if the reset timeout has elapsed. */
@@ -98,7 +109,7 @@ export class CircuitBreaker {
     if (this.state === 'open') {
       const elapsed = Date.now() - this.lastFailureTime;
       if (elapsed >= this.resetTimeoutMs) {
-        this.state = 'half-open';
+        this.transition('half-open');
       }
     }
     return this.state;
@@ -137,20 +148,20 @@ export class CircuitBreaker {
   private onSuccess(): void {
     this.failures = 0;
     this.successes++;
-    this.state = 'closed';
+    this.transition('closed');
   }
 
   private onFailure(): void {
     this.failures++;
     this.lastFailureTime = Date.now();
     if (this.state === 'half-open' || this.failures >= this.failureThreshold) {
-      this.state = 'open';
+      this.transition('open');
     }
   }
 
   /** Resets the circuit breaker to its initial closed state, clearing all counters. */
   reset(): void {
-    this.state = 'closed';
+    this.transition('closed');
     this.failures = 0;
     this.successes = 0;
     this.totalRequests = 0;
@@ -489,4 +500,18 @@ export async function aggregateHealth(
     services,
     totalLatencyMs: Date.now() - start,
   };
+}
+
+/** Executes the given async function and returns a fallback value if it throws. */
+export async function withFallback<T>(
+  fn: () => Promise<T>,
+  fallback: T | ((err: unknown) => T),
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    return typeof fallback === 'function'
+      ? (fallback as (err: unknown) => T)(err)
+      : fallback;
+  }
 }
