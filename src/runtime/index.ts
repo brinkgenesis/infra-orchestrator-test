@@ -64,6 +64,9 @@ export async function withRetry<T>(
   fn: () => Promise<T>,
   opts: RetryOptions = DEFAULT_RETRY,
 ): Promise<T> {
+  if (opts.maxAttempts < 1) {
+    throw new Error('maxAttempts must be at least 1');
+  }
   let lastError: unknown;
   for (let attempt = 0; attempt < opts.maxAttempts; attempt++) {
     try {
@@ -86,6 +89,12 @@ export class CircuitBreaker {
   private readonly resetTimeoutMs: number;
 
   constructor(opts: CircuitBreakerOptions) {
+    if (opts.failureThreshold < 1 || !Number.isFinite(opts.failureThreshold)) {
+      throw new Error('failureThreshold must be a positive finite integer');
+    }
+    if (opts.resetTimeoutMs <= 0 || !Number.isFinite(opts.resetTimeoutMs)) {
+      throw new Error('resetTimeoutMs must be a positive finite number');
+    }
     this.failureThreshold = opts.failureThreshold;
     this.resetTimeoutMs = opts.resetTimeoutMs;
   }
@@ -125,9 +134,15 @@ export class CircuitBreaker {
   private onFailure(): void {
     this.failures++;
     this.lastFailureTime = Date.now();
-    if (this.failures >= this.failureThreshold) {
+    if (this.state === 'half-open' || this.failures >= this.failureThreshold) {
       this.state = 'open';
     }
+  }
+
+  reset(): void {
+    this.state = 'closed';
+    this.failures = 0;
+    this.lastFailureTime = 0;
   }
 }
 
