@@ -572,6 +572,31 @@ describe('createEndpointRegistry', () => {
     const registry = createEndpointRegistry();
     expect(registry.find('DELETE', '/nothing')).toBeUndefined();
   });
+
+  it('unregister removes an existing endpoint and returns true', () => {
+    const registry = createEndpointRegistry();
+    registry.register('get', '/users', 'List users');
+    registry.register('post', '/users', 'Create user');
+    expect(registry.count()).toBe(2);
+
+    const removed = registry.unregister('GET', '/users');
+    expect(removed).toBe(true);
+    expect(registry.count()).toBe(1);
+    expect(registry.find('GET', '/users')).toBeUndefined();
+    expect(registry.find('POST', '/users')).toBeDefined();
+  });
+
+  it('unregister returns false for non-existent endpoint', () => {
+    const registry = createEndpointRegistry();
+    expect(registry.unregister('DELETE', '/nothing')).toBe(false);
+  });
+
+  it('unregister normalizes method and path', () => {
+    const registry = createEndpointRegistry();
+    registry.register('get', 'items', 'List items');
+    expect(registry.unregister('get', 'items')).toBe(true);
+    expect(registry.count()).toBe(0);
+  });
 });
 
 describe('HTTP_STATUS', () => {

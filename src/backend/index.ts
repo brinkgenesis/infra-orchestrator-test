@@ -407,6 +407,16 @@ export function createEndpointRegistry() {
     list(): ReadonlyArray<EndpointDef> {
       return [...endpoints];
     },
+    unregister(method: string, path: string): boolean {
+      const normalizedMethod = method.toUpperCase();
+      const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+      const index = endpoints.findIndex(
+        (e) => e.method === normalizedMethod && e.path === normalizedPath,
+      );
+      if (index === -1) return false;
+      endpoints.splice(index, 1);
+      return true;
+    },
     find(method: string, path: string): EndpointDef | undefined {
       return endpoints.find(
         (e) => e.method === method.toUpperCase() && e.path === path,
