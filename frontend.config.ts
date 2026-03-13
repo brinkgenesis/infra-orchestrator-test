@@ -1,3 +1,9 @@
+export interface DevProxyTarget {
+  target: string;
+  changeOrigin?: boolean;
+  rewrite?: (path: string) => string;
+}
+
 export interface DevConfig {
   port: number;
   hmr: boolean;
@@ -12,9 +18,15 @@ export interface BuildConfig {
   target: string;
 }
 
+export interface AssetsConfig {
+  publicDir: string;
+  extensions: readonly string[];
+}
+
 export interface FrontendConfig {
   dev: DevConfig;
   build: BuildConfig;
+  assets?: AssetsConfig;
 }
 
 export type DeepPartial<T> = {
