@@ -1073,7 +1073,8 @@ describe('ResiliencePipeline', () => {
       circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60000 },
     });
     await expect(pipeline.execute(() => Promise.reject(new Error('fail')))).rejects.toThrow('fail');
-    await expect(pipeline.execute(() => Promise.resolve('ok'))).rejects.toThrow('Circuit breaker is open');
+    const err = await pipeline.execute(() => Promise.resolve('ok')).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(CircuitBreakerOpenError);
   });
 
   it('applies fallback strategy', async () => {
@@ -1130,5 +1131,115 @@ describe('ResiliencePipeline', () => {
   it('getCircuitBreaker returns undefined when not configured', () => {
     const pipeline = new ResiliencePipeline<string>({});
     expect(pipeline.getCircuitBreaker()).toBeUndefined();
+  });
+});
+
+describe('Typed error classes', () => {
+  it('TimeoutError has correct name and timeoutMs', () => {
+    const err = new TimeoutError(500);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(TimeoutError);
+    expect(err.name).toBe('TimeoutError');
+    expect(err.timeoutMs).toBe(500);
+    expect(err.message).toBe('Operation timed out after 500ms');
+  });
+
+  it('TimeoutError supports custom message', () => {
+    const err = new TimeoutError(100, 'custom timeout');
+    expect(err.message).toBe('custom timeout');
+    expect(err.timeoutMs).toBe(100);
+  });
+
+  it('CircuitBreakerOpenError has correct name and default message', () => {
+    const err = new CircuitBreakerOpenError();
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(CircuitBreakerOpenError);
+    expect(err.name).toBe('CircuitBreakerOpenError');
+    expect(err.message).toBe('Circuit breaker is open');
+  });
+
+  it('CircuitBreakerOpenError supports custom message', () => {
+    const err = new CircuitBreakerOpenError('service-x breaker open');
+    expect(err.message).toBe('service-x breaker open');
+  });
+
+  it('BulkheadFullError has correct name and default message', () => {
+    const err = new BulkheadFullError();
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(BulkheadFullError);
+    expect(err.name).toBe('BulkheadFullError');
+    expect(err.message).toBe('Bulkhead queue is full');
+  });
+
+  it('BulkheadFullError supports custom message', () => {
+    const err = new BulkheadFullError('pool exhausted');
+    expect(err.message).toBe('pool exhausted');
+  });
+});
+
+describe('withHedging', () => {
+  it('returns the primary result when it resolves quickly', async () => {
+    const result = await withHedging(() => Promise.resolve('fast'), { delayMs: 100 });
+    expect(result).toBe('fast');
+  });
+
+  it('returns the hedged result when primary is slow', async () => {
+    let call = 0;
+    const fn = () => {
+      call++;
+      if (call === 1) {
+        return new Promise<string>((r) => setTimeout(() => r('slow'), 200));
+      }
+      return Promise.resolve('hedged');
+    };
+    const result = await withHedging(fn, { delayMs: 20 });
+    expect(result).toBe('hedged');
+  });
+
+  it('throws if all attempts fail', async () => {
+    const fn = () => Promise.reject(new Error('down'));
+    await expect(withHedging(fn, { delayMs: 10 })).rejects.toThrow('down');
+  });
+
+  it('supports maxAttempts=1 (no hedging)', async () => {
+    const fn = vi.fn().mockResolvedValue('only');
+    const result = await withHedging(fn, { delayMs: 10, maxAttempts: 1 });
+    expect(result).toBe('only');
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('throws for maxAttempts < 1', async () => {
+    await expect(
+      withHedging(() => Promise.resolve('x'), { delayMs: 10, maxAttempts: 0 }),
+    ).rejects.toThrow('maxAttempts must be at least 1');
+  });
+
+  it('launches multiple hedged attempts with maxAttempts=3', async () => {
+    let calls = 0;
+    const fn = () => {
+      calls++;
+      return new Promise<string>((r) => setTimeout(() => r(`attempt-${calls}`), 200));
+    };
+    const result = await withHedging(fn, { delayMs: 10, maxAttempts: 3 });
+    expect(result).toMatch(/^attempt-/);
+    expect(calls).toBe(3);
+  });
+
+  it('resolves with first success even if others are pending', async () => {
+    let calls = 0;
+    const fn = () => {
+      calls++;
+      if (calls === 1) {
+        return new Promise<string>((r) => setTimeout(() => r('slow-primary'), 300));
+      }
+      return Promise.resolve('fast-hedge');
+    };
+    const result = await withHedging(fn, { delayMs: 10 });
+    expect(result).toBe('fast-hedge');
+  });
+
+  it('rejects only after all attempts fail', async () => {
+    const fn = () => Promise.reject(new Error('all-down'));
+    await expect(withHedging(fn, { delayMs: 5 })).rejects.toThrow('all-down');
   });
 });
