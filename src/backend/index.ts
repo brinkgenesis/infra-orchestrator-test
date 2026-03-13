@@ -89,6 +89,7 @@ export function buildRoute(cfg: BackendConfig, ...segments: string[]): string {
   return joined ? `${apiUrl}/${joined}` : apiUrl;
 }
 
+/** Validates a backend configuration and returns an array of error messages (empty if valid). */
 export function validateConfig(cfg: BackendConfig): string[] {
   const errors: string[] = [];
   if (!Number.isInteger(cfg.server.port) || cfg.server.port < 1 || cfg.server.port > 65535) {
@@ -169,6 +170,7 @@ function generateRequestId(): string {
   return id;
 }
 
+/** Shallow-merges a partial override into a base backend configuration. */
 export function mergeConfig(
   base: BackendConfig,
   overrides: Partial<BackendConfig>
