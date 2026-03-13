@@ -561,8 +561,19 @@ export class SlidingWindowRateLimiter {
 
   private prune(now: number): void {
     const cutoff = now - this.windowMs;
-    while (this.timestamps.length > 0 && this.timestamps[0]! <= cutoff) {
-      this.timestamps.shift();
+    // Binary search for the first timestamp within the window to avoid O(n) shifts
+    let lo = 0;
+    let hi = this.timestamps.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (this.timestamps[mid]! <= cutoff) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    if (lo > 0) {
+      this.timestamps = this.timestamps.slice(lo);
     }
   }
 
