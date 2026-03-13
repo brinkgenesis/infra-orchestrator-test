@@ -15,6 +15,7 @@ import {
   RetryableError,
   isRetryableError,
   SlidingWindowRateLimiter,
+  ResiliencePipeline,
 } from './index';
 import type { CircuitState } from './index';
 
@@ -1027,5 +1028,98 @@ describe('SlidingWindowRateLimiter', () => {
     expect(() => new SlidingWindowRateLimiter({ maxRequests: 10, windowMs: -100 })).toThrow(
       'windowMs must be a positive finite number',
     );
+  });
+});
+
+describe('ResiliencePipeline', () => {
+  it('executes a simple function with no strategies', async () => {
+    const pipeline = new ResiliencePipeline<string>({});
+    const result = await pipeline.execute(() => Promise.resolve('ok'));
+    expect(result).toBe('ok');
+  });
+
+  it('applies timeout strategy', async () => {
+    const pipeline = new ResiliencePipeline<string>({ timeout: { timeoutMs: 10 } });
+    await expect(
+      pipeline.execute(() => new Promise((r) => setTimeout(() => r('late'), 200))),
+    ).rejects.toThrow('timed out');
+  });
+
+  it('applies retry strategy', async () => {
+    const pipeline = new ResiliencePipeline<string>({
+      retry: { maxAttempts: 3, baseDelayMs: 1, maxDelayMs: 10 },
+    });
+    let calls = 0;
+    const result = await pipeline.execute(async () => {
+      calls++;
+      if (calls < 3) throw new Error('fail');
+      return 'recovered';
+    });
+    expect(result).toBe('recovered');
+    expect(calls).toBe(3);
+  });
+
+  it('applies circuit breaker strategy', async () => {
+    const pipeline = new ResiliencePipeline<string>({
+      circuitBreaker: { failureThreshold: 1, resetTimeoutMs: 60000 },
+    });
+    await expect(pipeline.execute(() => Promise.reject(new Error('fail')))).rejects.toThrow('fail');
+    await expect(pipeline.execute(() => Promise.resolve('ok'))).rejects.toThrow('Circuit breaker is open');
+  });
+
+  it('applies fallback strategy', async () => {
+    const pipeline = new ResiliencePipeline<string>({ fallback: 'default' });
+    const result = await pipeline.execute(() => Promise.reject(new Error('fail')));
+    expect(result).toBe('default');
+  });
+
+  it('applies fallback function strategy', async () => {
+    const pipeline = new ResiliencePipeline<string>({
+      fallback: (err) => `recovered: ${(err as Error).message}`,
+    });
+    const result = await pipeline.execute(() => Promise.reject(new Error('oops')));
+    expect(result).toBe('recovered: oops');
+  });
+
+  it('composes retry + timeout correctly', async () => {
+    const pipeline = new ResiliencePipeline<string>({
+      retry: { maxAttempts: 3, baseDelayMs: 1, maxDelayMs: 10 },
+      timeout: { timeoutMs: 20 },
+    });
+    let calls = 0;
+    const result = await pipeline.execute(async () => {
+      calls++;
+      if (calls === 1) await new Promise((r) => setTimeout(r, 200));
+      return 'ok';
+    });
+    expect(result).toBe('ok');
+    expect(calls).toBe(2);
+  });
+
+  it('composes all strategies together', async () => {
+    const pipeline = new ResiliencePipeline<string>({
+      retry: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 10 },
+      timeout: { timeoutMs: 50 },
+      circuitBreaker: { failureThreshold: 5, resetTimeoutMs: 60000 },
+      fallback: 'safe-default',
+    });
+
+    // Function that always fails => retries exhaust => circuit breaker records failures => fallback kicks in
+    const result = await pipeline.execute(() => Promise.reject(new Error('down')));
+    expect(result).toBe('safe-default');
+  });
+
+  it('getCircuitBreaker returns the internal CB instance', () => {
+    const pipeline = new ResiliencePipeline<string>({
+      circuitBreaker: { failureThreshold: 3, resetTimeoutMs: 1000 },
+    });
+    const cb = pipeline.getCircuitBreaker();
+    expect(cb).toBeDefined();
+    expect(cb!.getState()).toBe('closed');
+  });
+
+  it('getCircuitBreaker returns undefined when not configured', () => {
+    const pipeline = new ResiliencePipeline<string>({});
+    expect(pipeline.getCircuitBreaker()).toBeUndefined();
   });
 });

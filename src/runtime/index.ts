@@ -593,3 +593,65 @@ export class SlidingWindowRateLimiter {
     this.timestamps = [];
   }
 }
+
+export interface ResiliencePipelineOptions<T> {
+  retry?: RetryOptions;
+  timeout?: TimeoutOptions;
+  circuitBreaker?: CircuitBreakerOptions;
+  fallback?: T | ((err: unknown) => T);
+}
+
+/**
+ * Composes CircuitBreaker, retry, timeout, and fallback into a single
+ * reusable execution pipeline. Strategies are applied in the correct order:
+ *   fallback( circuitBreaker( retry( timeout( fn ) ) ) )
+ */
+export class ResiliencePipeline<T> {
+  private readonly cb: CircuitBreaker | undefined;
+  private readonly retryOpts: RetryOptions | undefined;
+  private readonly timeoutOpts: TimeoutOptions | undefined;
+  private readonly fallbackValue: T | ((err: unknown) => T) | undefined;
+  private readonly hasFallback: boolean;
+
+  constructor(opts: ResiliencePipelineOptions<T>) {
+    this.cb = opts.circuitBreaker ? new CircuitBreaker(opts.circuitBreaker) : undefined;
+    this.retryOpts = opts.retry ?? undefined;
+    this.timeoutOpts = opts.timeout ?? undefined;
+    this.fallbackValue = opts.fallback ?? undefined;
+    this.hasFallback = 'fallback' in opts;
+  }
+
+  /** Returns the underlying CircuitBreaker instance, if configured. */
+  getCircuitBreaker(): CircuitBreaker | undefined {
+    return this.cb;
+  }
+
+  /** Executes the given function through the full resilience pipeline. */
+  async execute(fn: () => Promise<T>): Promise<T> {
+    let wrapped: () => Promise<T> = fn;
+
+    if (this.timeoutOpts) {
+      const tOpts = this.timeoutOpts;
+      const inner = wrapped;
+      wrapped = () => withTimeout(inner, tOpts);
+    }
+
+    if (this.retryOpts) {
+      const rOpts = this.retryOpts;
+      const inner = wrapped;
+      wrapped = () => withRetry(inner, rOpts);
+    }
+
+    if (this.cb) {
+      const cb = this.cb;
+      const inner = wrapped;
+      wrapped = () => cb.execute(inner);
+    }
+
+    if (this.hasFallback) {
+      return withFallback(wrapped, this.fallbackValue as T | ((err: unknown) => T));
+    }
+
+    return wrapped();
+  }
+}
