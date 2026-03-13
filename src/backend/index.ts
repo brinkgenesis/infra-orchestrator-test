@@ -115,7 +115,7 @@ export function createConfigFromEnv(env: Record<string, string | undefined>): Ba
       host: env['HOST'] || defaultConfig.server.host,
     },
     api: {
-      basePath: env['API_BASE_PATH'] ?? defaultConfig.api.basePath,
+      basePath: env['API_BASE_PATH'] || defaultConfig.api.basePath,
       versioned: env['API_VERSIONED'] !== 'false',
     },
   };
@@ -173,6 +173,7 @@ export type RateLimiterFn = {
   (clientId: string, now?: number): RateLimitResult;
   cleanup(now?: number): number;
   size(): number;
+  reset(): void;
 };
 
 /** Creates a stateful rate-limiter function that tracks request counts per client ID within sliding windows. */
@@ -210,6 +211,10 @@ export function createRateLimiter(config: RateLimitConfig): RateLimiterFn {
 
   checkRate.size = function size(): number {
     return windows.size;
+  };
+
+  checkRate.reset = function reset(): void {
+    windows.clear();
   };
 
   return checkRate;

@@ -321,6 +321,27 @@ describe('createRateLimiter', () => {
     expect(removed).toBe(0);
     expect(limiter.size()).toBe(2);
   });
+
+  it('reset clears all tracked clients', () => {
+    const limiter = createRateLimiter({ windowMs: 1000, maxRequests: 5 });
+    limiter('client-1', 1000);
+    limiter('client-2', 1000);
+    limiter('client-3', 1000);
+    expect(limiter.size()).toBe(3);
+    limiter.reset();
+    expect(limiter.size()).toBe(0);
+  });
+
+  it('reset allows previously blocked clients to make requests again', () => {
+    const limiter = createRateLimiter({ windowMs: 1000, maxRequests: 1 });
+    limiter('client-1', 1000);
+    const blocked = limiter('client-1', 1000);
+    expect(blocked.allowed).toBe(false);
+    limiter.reset();
+    const afterReset = limiter('client-1', 1000);
+    expect(afterReset.allowed).toBe(true);
+    expect(afterReset.remaining).toBe(0);
+  });
 });
 
 describe('formatRoute', () => {
