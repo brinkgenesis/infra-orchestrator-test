@@ -37,13 +37,22 @@ export function createMiddlewareStack(
   };
 }
 
-export function createCorsHeaders(cors: CorsConfig): Record<string, string> {
-  return {
-    'Access-Control-Allow-Origin': cors.allowedOrigins.join(', '),
+/** Builds CORS response headers. Per the spec, Access-Control-Allow-Origin must be
+ *  a single origin or '*', not a comma-separated list. When the config lists specific
+ *  origins, pass the incoming request origin so the correct one can be echoed back. */
+export function createCorsHeaders(cors: CorsConfig, requestOrigin?: string): Record<string, string> {
+  const headers: Record<string, string> = {
     'Access-Control-Allow-Methods': cors.allowedMethods.join(', '),
     'Access-Control-Allow-Headers': cors.allowedHeaders.join(', '),
     'Access-Control-Max-Age': String(cors.maxAge),
   };
+  if (cors.allowedOrigins.includes('*')) {
+    headers['Access-Control-Allow-Origin'] = '*';
+  } else if (requestOrigin !== undefined && cors.allowedOrigins.includes(requestOrigin)) {
+    headers['Access-Control-Allow-Origin'] = requestOrigin;
+    headers['Vary'] = 'Origin';
+  }
+  return headers;
 }
 
 export function isRateLimited(

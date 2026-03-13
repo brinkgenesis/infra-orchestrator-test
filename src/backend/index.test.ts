@@ -138,11 +138,26 @@ describe('validateConfig', () => {
     expect(errors[0]).toContain('Host must not be empty');
   });
 
-  it('detects NaN port from invalid env input', () => {
+  it('falls back to default port for non-numeric PORT env', () => {
     const cfg = createConfigFromEnv({ PORT: 'abc' });
-    const errors = validateConfig(cfg);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain('Invalid port');
+    expect(cfg.server.port).toBe(8080);
+    expect(validateConfig(cfg)).toHaveLength(0);
+  });
+
+  it('falls back to default port for out-of-range PORT env', () => {
+    expect(createConfigFromEnv({ PORT: '0' }).server.port).toBe(8080);
+    expect(createConfigFromEnv({ PORT: '-1' }).server.port).toBe(8080);
+    expect(createConfigFromEnv({ PORT: '70000' }).server.port).toBe(8080);
+  });
+
+  it('falls back to default host for empty HOST env', () => {
+    const cfg = createConfigFromEnv({ HOST: '' });
+    expect(cfg.server.host).toBe('localhost');
+  });
+
+  it('falls back to default basePath for empty API_BASE_PATH env', () => {
+    const cfg = createConfigFromEnv({ API_BASE_PATH: '' });
+    expect(cfg.api.basePath).toBe('/api');
   });
 
   it('detects fractional port', () => {

@@ -40,20 +40,52 @@ describe('createMiddlewareStack', () => {
 });
 
 describe('createCorsHeaders', () => {
-  it('returns correct headers', () => {
+  it('returns wildcard origin when allowedOrigins includes *', () => {
     const cors: CorsConfig = {
-      allowedOrigins: ['https://a.com', 'https://b.com'],
+      allowedOrigins: ['*'],
       allowedMethods: ['GET', 'POST'],
       allowedHeaders: ['Authorization'],
       maxAge: 7200,
     };
     const headers = createCorsHeaders(cors);
-    expect(headers['Access-Control-Allow-Origin']).toBe(
-      'https://a.com, https://b.com'
-    );
+    expect(headers['Access-Control-Allow-Origin']).toBe('*');
     expect(headers['Access-Control-Allow-Methods']).toBe('GET, POST');
     expect(headers['Access-Control-Allow-Headers']).toBe('Authorization');
     expect(headers['Access-Control-Max-Age']).toBe('7200');
+  });
+
+  it('echoes matching request origin when not wildcard', () => {
+    const cors: CorsConfig = {
+      allowedOrigins: ['https://a.com', 'https://b.com'],
+      allowedMethods: ['GET'],
+      allowedHeaders: ['Content-Type'],
+      maxAge: 3600,
+    };
+    const headers = createCorsHeaders(cors, 'https://a.com');
+    expect(headers['Access-Control-Allow-Origin']).toBe('https://a.com');
+    expect(headers['Vary']).toBe('Origin');
+  });
+
+  it('omits Allow-Origin when request origin does not match', () => {
+    const cors: CorsConfig = {
+      allowedOrigins: ['https://a.com'],
+      allowedMethods: ['GET'],
+      allowedHeaders: ['Content-Type'],
+      maxAge: 3600,
+    };
+    const headers = createCorsHeaders(cors, 'https://evil.com');
+    expect(headers['Access-Control-Allow-Origin']).toBeUndefined();
+  });
+
+  it('omits Allow-Origin when no request origin and not wildcard', () => {
+    const cors: CorsConfig = {
+      allowedOrigins: ['https://a.com'],
+      allowedMethods: ['GET'],
+      allowedHeaders: ['Content-Type'],
+      maxAge: 3600,
+    };
+    const headers = createCorsHeaders(cors);
+    expect(headers['Access-Control-Allow-Origin']).toBeUndefined();
   });
 });
 
