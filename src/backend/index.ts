@@ -533,4 +533,19 @@ export function parseIntParam(value: string | undefined, fallback: number): numb
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+/** Normalizes a base path by ensuring it starts with "/" and has no trailing slash. */
+export function normalizeBasePath(path: string): string {
+  let normalized = path.startsWith('/') ? path : `/${path}`;
+  while (normalized.length > 1 && normalized.endsWith('/')) {
+    normalized = normalized.slice(0, -1);
+  }
+  return normalized;
+}
+
+/** Returns true if the given HTTP method string is a standard method. */
+export function isValidHttpMethod(method: string): boolean {
+  const valid = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
+  return valid.includes(method.toUpperCase());
+}
+
 export { defaultConfig as backendConfig, defaultMiddlewareConfig as middlewareConfig };

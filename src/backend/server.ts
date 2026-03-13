@@ -132,6 +132,14 @@ export class Server {
       middlewares: this.getMiddlewareCount(),
     };
   }
+
+  hasRoute(method: Route['method'], path: string): boolean {
+    return this.routes.some(r => r.method === method && r.path === path);
+  }
+
+  listRoutePaths(): string[] {
+    return this.routes.map(r => `${r.method} ${r.path}`);
+  }
 }
 
 export function createServer(config?: AppConfig): Server {

@@ -166,6 +166,35 @@ describe('Server', () => {
     expect(statusAfter.routes).toBe(1);
     expect(statusAfter.middlewares).toBe(1);
   });
+
+  it('hasRoute returns true for registered route', () => {
+    const server = new Server();
+    server.addRoute({ method: 'GET', path: '/api/users', handler: 'listUsers' });
+    expect(server.hasRoute('GET', '/api/users')).toBe(true);
+  });
+
+  it('hasRoute returns false for unregistered route', () => {
+    const server = new Server();
+    expect(server.hasRoute('GET', '/api/users')).toBe(false);
+  });
+
+  it('hasRoute distinguishes method', () => {
+    const server = new Server();
+    server.addRoute({ method: 'GET', path: '/api/users', handler: 'listUsers' });
+    expect(server.hasRoute('POST', '/api/users')).toBe(false);
+  });
+
+  it('listRoutePaths returns formatted route strings', () => {
+    const server = new Server();
+    server.addRoute({ method: 'GET', path: '/api/users', handler: 'listUsers' });
+    server.addRoute({ method: 'POST', path: '/api/users', handler: 'createUser' });
+    expect(server.listRoutePaths()).toEqual(['GET /api/users', 'POST /api/users']);
+  });
+
+  it('listRoutePaths returns empty array when no routes', () => {
+    const server = new Server();
+    expect(server.listRoutePaths()).toEqual([]);
+  });
 });
 
 describe('Middleware', () => {
