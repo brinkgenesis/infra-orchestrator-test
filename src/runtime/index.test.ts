@@ -64,6 +64,15 @@ describe('withRetry', () => {
     ).rejects.toThrow('always fails');
     expect(fn).toHaveBeenCalledTimes(2);
   });
+
+  it('throws if maxAttempts is less than 1', async () => {
+    await expect(
+      withRetry(() => Promise.resolve('ok'), { maxAttempts: 0, baseDelayMs: 1, maxDelayMs: 10 }),
+    ).rejects.toThrow('maxAttempts must be at least 1');
+    await expect(
+      withRetry(() => Promise.resolve('ok'), { maxAttempts: -1, baseDelayMs: 1, maxDelayMs: 10 }),
+    ).rejects.toThrow('maxAttempts must be at least 1');
+  });
 });
 
 describe('CircuitBreaker', () => {
@@ -108,6 +117,53 @@ describe('CircuitBreaker', () => {
     const result = await cb.execute(() => Promise.resolve('recovered'));
     expect(result).toBe('recovered');
     expect(cb.getState()).toBe('closed');
+  });
+
+  it('re-opens immediately on first failure in half-open state', async () => {
+    const cb = new CircuitBreaker({ failureThreshold: 3, resetTimeoutMs: 50 });
+    for (let i = 0; i < 3; i++) {
+      await expect(cb.execute(() => Promise.reject(new Error('x')))).rejects.toThrow();
+    }
+    expect(cb.getState()).toBe('open');
+
+    await new Promise((r) => setTimeout(r, 60));
+    expect(cb.getState()).toBe('half-open');
+
+    await expect(cb.execute(() => Promise.reject(new Error('x')))).rejects.toThrow();
+    expect(cb.getState()).toBe('open');
+  });
+
+  it('resets to closed state via reset()', async () => {
+    const cb = new CircuitBreaker({ failureThreshold: 1, resetTimeoutMs: 60000 });
+    await expect(cb.execute(() => Promise.reject(new Error('x')))).rejects.toThrow();
+    expect(cb.getState()).toBe('open');
+
+    cb.reset();
+    expect(cb.getState()).toBe('closed');
+
+    const result = await cb.execute(() => Promise.resolve('after reset'));
+    expect(result).toBe('after reset');
+  });
+
+  it('throws for invalid failureThreshold', () => {
+    expect(() => new CircuitBreaker({ failureThreshold: 0, resetTimeoutMs: 1000 })).toThrow(
+      'failureThreshold must be a positive finite integer',
+    );
+    expect(() => new CircuitBreaker({ failureThreshold: -1, resetTimeoutMs: 1000 })).toThrow(
+      'failureThreshold must be a positive finite integer',
+    );
+    expect(() => new CircuitBreaker({ failureThreshold: Infinity, resetTimeoutMs: 1000 })).toThrow(
+      'failureThreshold must be a positive finite integer',
+    );
+  });
+
+  it('throws for invalid resetTimeoutMs', () => {
+    expect(() => new CircuitBreaker({ failureThreshold: 3, resetTimeoutMs: 0 })).toThrow(
+      'resetTimeoutMs must be a positive finite number',
+    );
+    expect(() => new CircuitBreaker({ failureThreshold: 3, resetTimeoutMs: -100 })).toThrow(
+      'resetTimeoutMs must be a positive finite number',
+    );
   });
 });
 
