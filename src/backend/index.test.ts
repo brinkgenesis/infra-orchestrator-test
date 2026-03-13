@@ -131,6 +131,11 @@ describe('createConfigFromEnv', () => {
     const cfg = createConfigFromEnv({ HOST: '' });
     expect(cfg.server.host).toBe('localhost');
   });
+
+  it('falls back to default basePath when API_BASE_PATH is empty string', () => {
+    const cfg = createConfigFromEnv({ API_BASE_PATH: '' });
+    expect(cfg.api.basePath).toBe('/api');
+  });
 });
 
 describe('buildRoute', () => {
