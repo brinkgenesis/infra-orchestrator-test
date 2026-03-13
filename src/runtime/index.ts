@@ -44,6 +44,20 @@ export class TimeoutError extends Error {
   }
 }
 
+export class CircuitBreakerOpenError extends Error {
+  constructor(message = 'Circuit breaker is open') {
+    super(message);
+    this.name = 'CircuitBreakerOpenError';
+  }
+}
+
+export class BulkheadFullError extends Error {
+  constructor(message = 'Bulkhead capacity exhausted') {
+    super(message);
+    this.name = 'BulkheadFullError';
+  }
+}
+
 export async function withTimeout<T>(
   fn: () => Promise<T>,
   ms: number,
@@ -113,7 +127,7 @@ export class CircuitBreaker {
     const current = this.getState();
 
     if (current === 'open') {
-      throw new Error('Circuit breaker is open');
+      throw new CircuitBreakerOpenError();
     }
 
     try {
