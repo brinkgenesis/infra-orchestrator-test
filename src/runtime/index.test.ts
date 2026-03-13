@@ -12,6 +12,9 @@ import {
   GracefulShutdown,
   DeadlineContext,
   withFallback,
+  RetryableError,
+  isRetryableError,
+  SlidingWindowRateLimiter,
 } from './index';
 import type { CircuitState } from './index';
 
@@ -902,5 +905,127 @@ describe('CircuitBreaker onStateChange', () => {
     // success while closed -> stays closed, no transition
     await cb.execute(() => Promise.resolve('ok'));
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe('RetryableError', () => {
+  it('creates a retryable error by default', () => {
+    const err = new RetryableError('temporary failure');
+    expect(err.message).toBe('temporary failure');
+    expect(err.retryable).toBe(true);
+    expect(err.retryAfterMs).toBeUndefined();
+    expect(err.name).toBe('RetryableError');
+    expect(err).toBeInstanceOf(Error);
+  });
+
+  it('supports non-retryable errors', () => {
+    const err = new RetryableError('permanent', { retryable: false });
+    expect(err.retryable).toBe(false);
+  });
+
+  it('supports retryAfterMs hint', () => {
+    const err = new RetryableError('rate limited', { retryable: true, retryAfterMs: 5000 });
+    expect(err.retryAfterMs).toBe(5000);
+  });
+});
+
+describe('isRetryableError', () => {
+  it('returns true for RetryableError with retryable=true', () => {
+    expect(isRetryableError(new RetryableError('temp'))).toBe(true);
+  });
+
+  it('returns false for RetryableError with retryable=false', () => {
+    expect(isRetryableError(new RetryableError('perm', { retryable: false }))).toBe(false);
+  });
+
+  it('returns true for generic errors (assumed retryable)', () => {
+    expect(isRetryableError(new Error('generic'))).toBe(true);
+  });
+
+  it('returns true for non-Error values', () => {
+    expect(isRetryableError('string error')).toBe(true);
+  });
+
+  it('works as isRetryable predicate with withRetry', async () => {
+    const fn = vi.fn()
+      .mockRejectedValueOnce(new RetryableError('temp'))
+      .mockRejectedValueOnce(new RetryableError('stop', { retryable: false }))
+      .mockResolvedValue('ok');
+
+    await expect(
+      withRetry(fn, {
+        maxAttempts: 5,
+        baseDelayMs: 1,
+        maxDelayMs: 10,
+        isRetryable: isRetryableError,
+      }),
+    ).rejects.toThrow('stop');
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('SlidingWindowRateLimiter', () => {
+  it('allows requests within the limit', () => {
+    const rl = new SlidingWindowRateLimiter({ maxRequests: 3, windowMs: 1000 });
+    expect(rl.tryAcquire()).toBe(true);
+    expect(rl.tryAcquire()).toBe(true);
+    expect(rl.tryAcquire()).toBe(true);
+    expect(rl.getCount()).toBe(3);
+    expect(rl.getRemaining()).toBe(0);
+  });
+
+  it('rejects requests over the limit', () => {
+    const rl = new SlidingWindowRateLimiter({ maxRequests: 2, windowMs: 1000 });
+    expect(rl.tryAcquire()).toBe(true);
+    expect(rl.tryAcquire()).toBe(true);
+    expect(rl.tryAcquire()).toBe(false);
+  });
+
+  it('allows requests after the window expires', async () => {
+    const rl = new SlidingWindowRateLimiter({ maxRequests: 1, windowMs: 30 });
+    expect(rl.tryAcquire()).toBe(true);
+    expect(rl.tryAcquire()).toBe(false);
+
+    await new Promise((r) => setTimeout(r, 40));
+    expect(rl.tryAcquire()).toBe(true);
+  });
+
+  it('getRemaining reflects available capacity', () => {
+    const rl = new SlidingWindowRateLimiter({ maxRequests: 5, windowMs: 1000 });
+    expect(rl.getRemaining()).toBe(5);
+    rl.tryAcquire();
+    rl.tryAcquire();
+    expect(rl.getRemaining()).toBe(3);
+  });
+
+  it('reset clears all timestamps', () => {
+    const rl = new SlidingWindowRateLimiter({ maxRequests: 2, windowMs: 1000 });
+    rl.tryAcquire();
+    rl.tryAcquire();
+    expect(rl.getRemaining()).toBe(0);
+    rl.reset();
+    expect(rl.getRemaining()).toBe(2);
+    expect(rl.getCount()).toBe(0);
+  });
+
+  it('throws for invalid maxRequests', () => {
+    expect(() => new SlidingWindowRateLimiter({ maxRequests: 0, windowMs: 1000 })).toThrow(
+      'maxRequests must be a positive finite integer',
+    );
+    expect(() => new SlidingWindowRateLimiter({ maxRequests: -1, windowMs: 1000 })).toThrow(
+      'maxRequests must be a positive finite integer',
+    );
+    expect(() => new SlidingWindowRateLimiter({ maxRequests: Infinity, windowMs: 1000 })).toThrow(
+      'maxRequests must be a positive finite integer',
+    );
+  });
+
+  it('throws for invalid windowMs', () => {
+    expect(() => new SlidingWindowRateLimiter({ maxRequests: 10, windowMs: 0 })).toThrow(
+      'windowMs must be a positive finite number',
+    );
+    expect(() => new SlidingWindowRateLimiter({ maxRequests: 10, windowMs: -100 })).toThrow(
+      'windowMs must be a positive finite number',
+    );
   });
 });

@@ -515,3 +515,81 @@ export async function withFallback<T>(
       : fallback;
   }
 }
+
+/** An error subclass that carries a retryable flag and optional retry-after hint. */
+export class RetryableError extends Error {
+  readonly retryable: boolean;
+  readonly retryAfterMs: number | undefined;
+
+  constructor(message: string, opts: { retryable: boolean; retryAfterMs?: number } = { retryable: true }) {
+    super(message);
+    this.name = 'RetryableError';
+    this.retryable = opts.retryable;
+    this.retryAfterMs = opts.retryAfterMs ?? undefined;
+  }
+}
+
+/** Default isRetryable predicate that checks for RetryableError instances. */
+export function isRetryableError(err: unknown): boolean {
+  if (err instanceof RetryableError) {
+    return err.retryable;
+  }
+  return true;
+}
+
+export interface SlidingWindowRateLimiterOptions {
+  maxRequests: number;
+  windowMs: number;
+}
+
+/** Sliding-window rate limiter that tracks request timestamps within a rolling window. */
+export class SlidingWindowRateLimiter {
+  private readonly maxRequests: number;
+  private readonly windowMs: number;
+  private timestamps: number[] = [];
+
+  constructor(opts: SlidingWindowRateLimiterOptions) {
+    if (opts.maxRequests < 1 || !Number.isFinite(opts.maxRequests)) {
+      throw new Error('maxRequests must be a positive finite integer');
+    }
+    if (opts.windowMs <= 0 || !Number.isFinite(opts.windowMs)) {
+      throw new Error('windowMs must be a positive finite number');
+    }
+    this.maxRequests = opts.maxRequests;
+    this.windowMs = opts.windowMs;
+  }
+
+  private prune(now: number): void {
+    const cutoff = now - this.windowMs;
+    while (this.timestamps.length > 0 && this.timestamps[0]! <= cutoff) {
+      this.timestamps.shift();
+    }
+  }
+
+  /** Attempts to record a request; returns true if allowed, false if rate-limited. */
+  tryAcquire(): boolean {
+    const now = Date.now();
+    this.prune(now);
+    if (this.timestamps.length >= this.maxRequests) {
+      return false;
+    }
+    this.timestamps.push(now);
+    return true;
+  }
+
+  /** Returns the number of requests recorded in the current window. */
+  getCount(): number {
+    this.prune(Date.now());
+    return this.timestamps.length;
+  }
+
+  /** Returns the number of remaining requests allowed in the current window. */
+  getRemaining(): number {
+    return Math.max(0, this.maxRequests - this.getCount());
+  }
+
+  /** Resets the sliding window, clearing all recorded timestamps. */
+  reset(): void {
+    this.timestamps = [];
+  }
+}
