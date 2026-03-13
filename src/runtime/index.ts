@@ -83,6 +83,12 @@ export class CircuitBreaker {
 
   /** Initializes the circuit breaker with the given failure threshold and reset timeout. */
   constructor(opts: CircuitBreakerOptions) {
+    if (opts.failureThreshold < 1 || !Number.isFinite(opts.failureThreshold)) {
+      throw new Error('failureThreshold must be a positive finite integer');
+    }
+    if (opts.resetTimeoutMs <= 0 || !Number.isFinite(opts.resetTimeoutMs)) {
+      throw new Error('resetTimeoutMs must be a positive finite number');
+    }
     this.failureThreshold = opts.failureThreshold;
     this.resetTimeoutMs = opts.resetTimeoutMs;
   }
@@ -198,6 +204,12 @@ export class Bulkhead {
 
   /** Initializes the bulkhead with the given concurrency limit and optional queue depth. */
   constructor(maxConcurrent: number, maxQueue = Infinity) {
+    if (maxConcurrent < 1 || !Number.isFinite(maxConcurrent)) {
+      throw new Error('maxConcurrent must be a positive finite integer');
+    }
+    if (maxQueue < 0) {
+      throw new Error('maxQueue must be a non-negative number');
+    }
     this.maxConcurrent = maxConcurrent;
     this.maxQueue = maxQueue;
   }
