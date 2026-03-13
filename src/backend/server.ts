@@ -7,7 +7,7 @@ export interface HealthStatus {
 }
 
 export interface Route {
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
   path: string;
   handler: string;
 }
@@ -34,6 +34,9 @@ export class Server {
   private middlewares: Middleware[] = [];
 
   constructor(config: AppConfig = defaultConfig) {
+    if (!Number.isFinite(config.port) || config.port < 1 || config.port > 65535) {
+      throw new RangeError(`Invalid port: ${config.port}. Must be between 1 and 65535.`);
+    }
     this.config = config;
   }
 

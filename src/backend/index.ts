@@ -115,7 +115,7 @@ export function createConfigFromEnv(env: Record<string, string | undefined>): Ba
       host: env['HOST'] || defaultConfig.server.host,
     },
     api: {
-      basePath: env['API_BASE_PATH'] ?? defaultConfig.api.basePath,
+      basePath: env['API_BASE_PATH'] || defaultConfig.api.basePath,
       versioned: env['API_VERSIONED'] !== 'false',
     },
   };

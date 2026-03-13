@@ -107,6 +107,26 @@ describe('Server', () => {
     expect(server.getMiddlewares()).toHaveLength(0);
   });
 
+  it('should reject invalid port in constructor', () => {
+    expect(() => new Server({ port: 0, host: 'localhost', env: 'test' })).toThrow(RangeError);
+    expect(() => new Server({ port: -1, host: 'localhost', env: 'test' })).toThrow(RangeError);
+    expect(() => new Server({ port: 70000, host: 'localhost', env: 'test' })).toThrow(RangeError);
+    expect(() => new Server({ port: NaN, host: 'localhost', env: 'test' })).toThrow(RangeError);
+    expect(() => new Server({ port: Infinity, host: 'localhost', env: 'test' })).toThrow(RangeError);
+  });
+
+  it('should accept valid port boundaries', () => {
+    expect(() => new Server({ port: 1, host: 'localhost', env: 'test' })).not.toThrow();
+    expect(() => new Server({ port: 65535, host: 'localhost', env: 'test' })).not.toThrow();
+  });
+
+  it('should support PATCH routes', () => {
+    const server = new Server();
+    const route = { method: 'PATCH' as const, path: '/api/users/1', handler: 'updateUser' };
+    server.addRoute(route);
+    expect(server.findRoute('PATCH', '/api/users/1')).toEqual(route);
+  });
+
   it('createServer factory should work', () => {
     const server = createServer();
     expect(server).toBeInstanceOf(Server);

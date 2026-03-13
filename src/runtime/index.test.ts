@@ -750,6 +750,56 @@ describe('RateLimiter edge cases', () => {
   });
 });
 
+describe('CircuitBreaker constructor validation', () => {
+  it('throws for zero failureThreshold', () => {
+    expect(() => new CircuitBreaker({ failureThreshold: 0, resetTimeoutMs: 1000 })).toThrow(
+      'failureThreshold must be a positive finite integer',
+    );
+  });
+
+  it('throws for negative failureThreshold', () => {
+    expect(() => new CircuitBreaker({ failureThreshold: -1, resetTimeoutMs: 1000 })).toThrow(
+      'failureThreshold must be a positive finite integer',
+    );
+  });
+
+  it('throws for non-finite failureThreshold', () => {
+    expect(() => new CircuitBreaker({ failureThreshold: Infinity, resetTimeoutMs: 1000 })).toThrow(
+      'failureThreshold must be a positive finite integer',
+    );
+  });
+
+  it('throws for zero resetTimeoutMs', () => {
+    expect(() => new CircuitBreaker({ failureThreshold: 3, resetTimeoutMs: 0 })).toThrow(
+      'resetTimeoutMs must be a positive finite number',
+    );
+  });
+
+  it('throws for negative resetTimeoutMs', () => {
+    expect(() => new CircuitBreaker({ failureThreshold: 3, resetTimeoutMs: -100 })).toThrow(
+      'resetTimeoutMs must be a positive finite number',
+    );
+  });
+});
+
+describe('Bulkhead constructor validation', () => {
+  it('throws for zero maxConcurrent', () => {
+    expect(() => new Bulkhead(0)).toThrow('maxConcurrent must be a positive finite integer');
+  });
+
+  it('throws for negative maxConcurrent', () => {
+    expect(() => new Bulkhead(-1)).toThrow('maxConcurrent must be a positive finite integer');
+  });
+
+  it('throws for non-finite maxConcurrent', () => {
+    expect(() => new Bulkhead(Infinity)).toThrow('maxConcurrent must be a positive finite integer');
+  });
+
+  it('throws for negative maxQueue', () => {
+    expect(() => new Bulkhead(1, -1)).toThrow('maxQueue must be a non-negative number');
+  });
+});
+
 describe('withRetryAndTimeout', () => {
   it('retries timed-out operations', async () => {
     let calls = 0;
