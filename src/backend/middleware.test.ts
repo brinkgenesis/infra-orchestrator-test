@@ -6,6 +6,8 @@ import {
   createRequestContext,
   getElapsedMs,
   resolveMiddlewareForConfig,
+  createRequestLogEntry,
+  formatLogEntry,
 } from './middleware';
 import type { BackendConfig, CorsConfig, RateLimitConfig } from './index';
 
@@ -126,6 +128,40 @@ describe('getElapsedMs', () => {
     const ctx = createRequestContext('/test', 'get');
     const elapsed = getElapsedMs(ctx);
     expect(elapsed).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('createRequestLogEntry', () => {
+  it('creates a log entry with correct fields', () => {
+    const ctx = createRequestContext('/api/users', 'get');
+    const entry = createRequestLogEntry(ctx, 200);
+    expect(entry.requestId).toBe(ctx.requestId);
+    expect(entry.method).toBe('GET');
+    expect(entry.path).toBe('/api/users');
+    expect(entry.statusCode).toBe(200);
+    expect(entry.durationMs).toBeGreaterThanOrEqual(0);
+    expect(entry.timestamp).toBeTruthy();
+  });
+
+  it('captures error status codes', () => {
+    const ctx = createRequestContext('/api/fail', 'post');
+    const entry = createRequestLogEntry(ctx, 500);
+    expect(entry.statusCode).toBe(500);
+    expect(entry.method).toBe('POST');
+  });
+});
+
+describe('formatLogEntry', () => {
+  it('formats entry as single-line string', () => {
+    const entry = {
+      requestId: 'req-123',
+      method: 'GET',
+      path: '/api/users',
+      statusCode: 200,
+      durationMs: 42,
+      timestamp: '2026-01-01T00:00:00.000Z',
+    };
+    expect(formatLogEntry(entry)).toBe('GET /api/users 200 42ms [req-123]');
   });
 });
 

@@ -93,3 +93,32 @@ export function resolveMiddlewareForConfig(
   }
   return createMiddlewareStack(overrides);
 }
+
+export interface RequestLogEntry {
+  requestId: string;
+  method: string;
+  path: string;
+  statusCode: number;
+  durationMs: number;
+  timestamp: string;
+}
+
+/** Formats a completed request into a structured log entry. */
+export function createRequestLogEntry(
+  ctx: RequestContext,
+  statusCode: number
+): RequestLogEntry {
+  return {
+    requestId: ctx.requestId,
+    method: ctx.method,
+    path: ctx.path,
+    statusCode,
+    durationMs: getElapsedMs(ctx),
+    timestamp: new Date().toISOString(),
+  };
+}
+
+/** Formats a log entry as a single-line string suitable for structured logging. */
+export function formatLogEntry(entry: RequestLogEntry): string {
+  return `${entry.method} ${entry.path} ${entry.statusCode} ${entry.durationMs}ms [${entry.requestId}]`;
+}
