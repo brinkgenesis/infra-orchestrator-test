@@ -17,9 +17,10 @@ export interface RetryOptions {
 export interface CircuitBreakerOptions {
   failureThreshold: number;
   resetTimeoutMs: number;
+  onStateChange?: (from: CircuitState, to: CircuitState) => void;
 }
 
-type CircuitState = 'closed' | 'open' | 'half-open';
+export type CircuitState = 'closed' | 'open' | 'half-open';
 
 const DEFAULT_RETRY: RetryOptions = {
   maxAttempts: 3,
@@ -80,6 +81,7 @@ export class CircuitBreaker {
   private lastFailureTime = 0;
   private readonly failureThreshold: number;
   private readonly resetTimeoutMs: number;
+  private readonly onStateChange: ((from: CircuitState, to: CircuitState) => void) | undefined;
 
   /** Initializes the circuit breaker with the given failure threshold and reset timeout. */
   constructor(opts: CircuitBreakerOptions) {
@@ -91,6 +93,15 @@ export class CircuitBreaker {
     }
     this.failureThreshold = opts.failureThreshold;
     this.resetTimeoutMs = opts.resetTimeoutMs;
+    this.onStateChange = opts.onStateChange;
+  }
+
+  private transition(to: CircuitState): void {
+    if (this.state !== to) {
+      const from = this.state;
+      this.state = to;
+      this.onStateChange?.(from, to);
+    }
   }
 
   /** Returns the current circuit state, transitioning from open to half-open if the reset timeout has elapsed. */
@@ -98,7 +109,7 @@ export class CircuitBreaker {
     if (this.state === 'open') {
       const elapsed = Date.now() - this.lastFailureTime;
       if (elapsed >= this.resetTimeoutMs) {
-        this.state = 'half-open';
+        this.transition('half-open');
       }
     }
     return this.state;
@@ -120,7 +131,7 @@ export class CircuitBreaker {
     const current = this.getState();
 
     if (current === 'open') {
-      throw new Error('Circuit breaker is open');
+      throw new CircuitBreakerOpenError();
     }
 
     this.totalRequests++;
@@ -137,20 +148,20 @@ export class CircuitBreaker {
   private onSuccess(): void {
     this.failures = 0;
     this.successes++;
-    this.state = 'closed';
+    this.transition('closed');
   }
 
   private onFailure(): void {
     this.failures++;
     this.lastFailureTime = Date.now();
     if (this.state === 'half-open' || this.failures >= this.failureThreshold) {
-      this.state = 'open';
+      this.transition('open');
     }
   }
 
   /** Resets the circuit breaker to its initial closed state, clearing all counters. */
   reset(): void {
-    this.state = 'closed';
+    this.transition('closed');
     this.failures = 0;
     this.successes = 0;
     this.totalRequests = 0;
@@ -163,14 +174,41 @@ export interface TimeoutOptions {
   message?: string;
 }
 
-/** Executes the given async function and rejects with a timeout error if it does not complete in time. */
+/** Error thrown when an operation exceeds its configured timeout. */
+export class TimeoutError extends Error {
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number, message?: string) {
+    super(message ?? `Operation timed out after ${timeoutMs}ms`);
+    this.name = 'TimeoutError';
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+/** Error thrown when the circuit breaker is open and rejecting calls. */
+export class CircuitBreakerOpenError extends Error {
+  constructor(message?: string) {
+    super(message ?? 'Circuit breaker is open');
+    this.name = 'CircuitBreakerOpenError';
+  }
+}
+
+/** Error thrown when a bulkhead's queue is full and cannot accept more work. */
+export class BulkheadFullError extends Error {
+  constructor(message?: string) {
+    super(message ?? 'Bulkhead queue is full');
+    this.name = 'BulkheadFullError';
+  }
+}
+
+/** Executes the given async function and rejects with a TimeoutError if it does not complete in time. */
 export async function withTimeout<T>(
   fn: () => Promise<T>,
   opts: TimeoutOptions,
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error(opts.message ?? `Operation timed out after ${opts.timeoutMs}ms`));
+      reject(new TimeoutError(opts.timeoutMs, opts.message));
     }, opts.timeoutMs);
 
     fn().then(
@@ -228,7 +266,7 @@ export class Bulkhead {
   async execute<T>(fn: () => Promise<T>): Promise<T> {
     if (this.running >= this.maxConcurrent) {
       if (this.queue.length >= this.maxQueue) {
-        throw new Error('Bulkhead queue is full');
+        throw new BulkheadFullError();
       }
       await new Promise<void>((resolve) => {
         this.queue.push(resolve);
@@ -489,4 +527,234 @@ export async function aggregateHealth(
     services,
     totalLatencyMs: Date.now() - start,
   };
+}
+
+/** Executes the given async function and returns a fallback value if it throws. */
+export async function withFallback<T>(
+  fn: () => Promise<T>,
+  fallback: T | ((err: unknown) => T),
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    return typeof fallback === 'function'
+      ? (fallback as (err: unknown) => T)(err)
+      : fallback;
+  }
+}
+
+/** An error subclass that carries a retryable flag and optional retry-after hint. */
+export class RetryableError extends Error {
+  readonly retryable: boolean;
+  readonly retryAfterMs: number | undefined;
+
+  constructor(message: string, opts: { retryable: boolean; retryAfterMs?: number } = { retryable: true }) {
+    super(message);
+    this.name = 'RetryableError';
+    this.retryable = opts.retryable;
+    this.retryAfterMs = opts.retryAfterMs ?? undefined;
+  }
+}
+
+/** Default isRetryable predicate that checks for RetryableError instances. */
+export function isRetryableError(err: unknown): boolean {
+  if (err instanceof RetryableError) {
+    return err.retryable;
+  }
+  return true;
+}
+
+export interface SlidingWindowRateLimiterOptions {
+  maxRequests: number;
+  windowMs: number;
+}
+
+/** Sliding-window rate limiter that tracks request timestamps within a rolling window. */
+export class SlidingWindowRateLimiter {
+  private readonly maxRequests: number;
+  private readonly windowMs: number;
+  private timestamps: number[] = [];
+
+  constructor(opts: SlidingWindowRateLimiterOptions) {
+    if (opts.maxRequests < 1 || !Number.isFinite(opts.maxRequests)) {
+      throw new Error('maxRequests must be a positive finite integer');
+    }
+    if (opts.windowMs <= 0 || !Number.isFinite(opts.windowMs)) {
+      throw new Error('windowMs must be a positive finite number');
+    }
+    this.maxRequests = opts.maxRequests;
+    this.windowMs = opts.windowMs;
+  }
+
+  private prune(now: number): void {
+    const cutoff = now - this.windowMs;
+    // Binary search for the first timestamp within the window to avoid O(n) shifts
+    let lo = 0;
+    let hi = this.timestamps.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (this.timestamps[mid]! <= cutoff) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    if (lo > 0) {
+      this.timestamps = this.timestamps.slice(lo);
+    }
+  }
+
+  /** Attempts to record a request; returns true if allowed, false if rate-limited. */
+  tryAcquire(): boolean {
+    const now = Date.now();
+    this.prune(now);
+    if (this.timestamps.length >= this.maxRequests) {
+      return false;
+    }
+    this.timestamps.push(now);
+    return true;
+  }
+
+  /** Returns the number of requests recorded in the current window. */
+  getCount(): number {
+    this.prune(Date.now());
+    return this.timestamps.length;
+  }
+
+  /** Returns the number of remaining requests allowed in the current window. */
+  getRemaining(): number {
+    return Math.max(0, this.maxRequests - this.getCount());
+  }
+
+  /** Resets the sliding window, clearing all recorded timestamps. */
+  reset(): void {
+    this.timestamps = [];
+  }
+}
+
+export interface ResiliencePipelineOptions<T> {
+  retry?: RetryOptions;
+  timeout?: TimeoutOptions;
+  circuitBreaker?: CircuitBreakerOptions;
+  fallback?: T | ((err: unknown) => T);
+}
+
+/**
+ * Composes CircuitBreaker, retry, timeout, and fallback into a single
+ * reusable execution pipeline. Strategies are applied in the correct order:
+ *   fallback( circuitBreaker( retry( timeout( fn ) ) ) )
+ */
+export class ResiliencePipeline<T> {
+  private readonly cb: CircuitBreaker | undefined;
+  private readonly retryOpts: RetryOptions | undefined;
+  private readonly timeoutOpts: TimeoutOptions | undefined;
+  private readonly fallbackValue: T | ((err: unknown) => T) | undefined;
+  private readonly hasFallback: boolean;
+
+  constructor(opts: ResiliencePipelineOptions<T>) {
+    this.cb = opts.circuitBreaker ? new CircuitBreaker(opts.circuitBreaker) : undefined;
+    this.retryOpts = opts.retry ?? undefined;
+    this.timeoutOpts = opts.timeout ?? undefined;
+    this.fallbackValue = opts.fallback ?? undefined;
+    this.hasFallback = 'fallback' in opts;
+  }
+
+  /** Returns the underlying CircuitBreaker instance, if configured. */
+  getCircuitBreaker(): CircuitBreaker | undefined {
+    return this.cb;
+  }
+
+  /** Executes the given function through the full resilience pipeline. */
+  async execute(fn: () => Promise<T>): Promise<T> {
+    let wrapped: () => Promise<T> = fn;
+
+    if (this.timeoutOpts) {
+      const tOpts = this.timeoutOpts;
+      const inner = wrapped;
+      wrapped = () => withTimeout(inner, tOpts);
+    }
+
+    if (this.retryOpts) {
+      const rOpts = this.retryOpts;
+      const inner = wrapped;
+      wrapped = () => withRetry(inner, rOpts);
+    }
+
+    if (this.cb) {
+      const cb = this.cb;
+      const inner = wrapped;
+      wrapped = () => cb.execute(inner);
+    }
+
+    if (this.hasFallback) {
+      return withFallback(wrapped, this.fallbackValue as T | ((err: unknown) => T));
+    }
+
+    return wrapped();
+  }
+}
+
+export interface HedgingOptions {
+  delayMs: number;
+  maxAttempts?: number;
+}
+
+/**
+ * Hedged requests: launches the primary call immediately and, if it hasn't
+ * resolved after `delayMs`, fires a secondary (hedged) attempt. Returns
+ * whichever resolves first. If all attempts fail, throws the last error.
+ */
+export async function withHedging<T>(
+  fn: () => Promise<T>,
+  opts: HedgingOptions,
+): Promise<T> {
+  const maxAttempts = opts.maxAttempts ?? 2;
+  if (maxAttempts < 1) {
+    throw new Error('maxAttempts must be at least 1');
+  }
+  if (maxAttempts === 1) {
+    return fn();
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    let pending = 0;
+    let lastError: unknown;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+
+    const attempt = () => {
+      pending++;
+      fn().then(
+        (result) => {
+          if (!settled) {
+            settled = true;
+            for (const t of timers) clearTimeout(t);
+            resolve(result);
+          }
+        },
+        (err) => {
+          lastError = err;
+          pending--;
+          if (pending === 0 && !settled) {
+            settled = true;
+            for (const t of timers) clearTimeout(t);
+            reject(lastError);
+          }
+        },
+      );
+    };
+
+    // Launch the primary attempt immediately
+    attempt();
+
+    // Schedule hedged attempts
+    for (let i = 1; i < maxAttempts; i++) {
+      const timer = setTimeout(() => {
+        if (!settled) {
+          attempt();
+        }
+      }, opts.delayMs * i);
+      timers.push(timer);
+    }
+  });
 }

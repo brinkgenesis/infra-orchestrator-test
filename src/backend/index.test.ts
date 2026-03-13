@@ -34,6 +34,8 @@ import {
   createServerStatus,
   getServerAddress,
   isProduction,
+  normalizeBasePath,
+  isValidHttpMethod,
 } from './index';
 import type { BackendConfig, CorsConfig, MiddlewareConfig, RetryConfig, ValidationRule } from './index';
 import type { AppConfig } from '../index';
@@ -572,6 +574,31 @@ describe('createEndpointRegistry', () => {
     const registry = createEndpointRegistry();
     expect(registry.find('DELETE', '/nothing')).toBeUndefined();
   });
+
+  it('unregister removes an existing endpoint and returns true', () => {
+    const registry = createEndpointRegistry();
+    registry.register('get', '/users', 'List users');
+    registry.register('post', '/users', 'Create user');
+    expect(registry.count()).toBe(2);
+
+    const removed = registry.unregister('GET', '/users');
+    expect(removed).toBe(true);
+    expect(registry.count()).toBe(1);
+    expect(registry.find('GET', '/users')).toBeUndefined();
+    expect(registry.find('POST', '/users')).toBeDefined();
+  });
+
+  it('unregister returns false for non-existent endpoint', () => {
+    const registry = createEndpointRegistry();
+    expect(registry.unregister('DELETE', '/nothing')).toBe(false);
+  });
+
+  it('unregister normalizes method and path', () => {
+    const registry = createEndpointRegistry();
+    registry.register('get', 'items', 'List items');
+    expect(registry.unregister('get', 'items')).toBe(true);
+    expect(registry.count()).toBe(0);
+  });
 });
 
 describe('HTTP_STATUS', () => {
@@ -779,5 +806,51 @@ describe('isProduction', () => {
 
   it('should default to non-production', () => {
     expect(isProduction()).toBe(false);
+  });
+});
+
+describe('normalizeBasePath', () => {
+  it('adds leading slash if missing', () => {
+    expect(normalizeBasePath('api')).toBe('/api');
+  });
+
+  it('preserves existing leading slash', () => {
+    expect(normalizeBasePath('/api')).toBe('/api');
+  });
+
+  it('removes trailing slashes', () => {
+    expect(normalizeBasePath('/api/')).toBe('/api');
+    expect(normalizeBasePath('/api///')).toBe('/api');
+  });
+
+  it('handles root path', () => {
+    expect(normalizeBasePath('/')).toBe('/');
+  });
+
+  it('handles empty string', () => {
+    expect(normalizeBasePath('')).toBe('/');
+  });
+});
+
+describe('isValidHttpMethod', () => {
+  it('returns true for standard methods', () => {
+    expect(isValidHttpMethod('GET')).toBe(true);
+    expect(isValidHttpMethod('POST')).toBe(true);
+    expect(isValidHttpMethod('PUT')).toBe(true);
+    expect(isValidHttpMethod('DELETE')).toBe(true);
+    expect(isValidHttpMethod('PATCH')).toBe(true);
+    expect(isValidHttpMethod('HEAD')).toBe(true);
+    expect(isValidHttpMethod('OPTIONS')).toBe(true);
+  });
+
+  it('is case-insensitive', () => {
+    expect(isValidHttpMethod('get')).toBe(true);
+    expect(isValidHttpMethod('Post')).toBe(true);
+  });
+
+  it('returns false for invalid methods', () => {
+    expect(isValidHttpMethod('FETCH')).toBe(false);
+    expect(isValidHttpMethod('')).toBe(false);
+    expect(isValidHttpMethod('CONNECT')).toBe(false);
   });
 });
