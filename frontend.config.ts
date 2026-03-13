@@ -4,23 +4,29 @@ export interface DevProxyTarget {
   rewrite?: (path: string) => string;
 }
 
+export interface DevConfig {
+  port: number;
+  hmr: boolean;
+  proxy: Record<string, DevProxyTarget>;
+  open: boolean;
+}
+
+export interface BuildConfig {
+  outDir: string;
+  sourcemap: boolean;
+  minify: boolean;
+  target: string;
+}
+
+export interface AssetsConfig {
+  publicDir: string;
+  extensions: readonly string[];
+}
+
 export interface FrontendConfig {
-  dev: {
-    port: number;
-    hmr: boolean;
-    proxy: Record<string, DevProxyTarget>;
-    open: boolean;
-  };
-  build: {
-    outDir: string;
-    sourcemap: boolean;
-    minify: boolean;
-    target: string;
-  };
-  assets: {
-    publicDir: string;
-    extensions: readonly string[];
-  };
+  dev: DevConfig;
+  build: BuildConfig;
+  assets: AssetsConfig;
 }
 
 /**

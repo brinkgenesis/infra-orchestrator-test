@@ -1,7 +1,7 @@
 import config from '../../frontend.config';
-import type { FrontendConfig, DevProxyTarget } from '../../frontend.config';
+import type { FrontendConfig, DevProxyTarget, DevConfig, BuildConfig, AssetsConfig } from '../../frontend.config';
 
-export type { FrontendConfig, DevProxyTarget };
+export type { FrontendConfig, DevProxyTarget, DevConfig, BuildConfig, AssetsConfig };
 
 export function getDevServerUrl(cfg: FrontendConfig = config): string {
   return `http://localhost:${cfg.dev.port}`;
@@ -99,10 +99,14 @@ export function buildViteConfig(
       open: cfg.dev.open,
       hmr: cfg.dev.hmr,
       proxy: Object.fromEntries(
-        Object.entries(cfg.dev.proxy).map(([path, proxyTarget]) => [
-          path,
-          { target: proxyTarget.target, changeOrigin: proxyTarget.changeOrigin ?? true },
-        ]),
+        Object.entries(cfg.dev.proxy).map(([path, proxyTarget]) => {
+          const entry: Record<string, unknown> = {
+            target: proxyTarget.target,
+            changeOrigin: proxyTarget.changeOrigin ?? true,
+          };
+          if (proxyTarget.rewrite) entry['rewrite'] = proxyTarget.rewrite;
+          return [path, entry];
+        }),
       ),
     },
     build: {

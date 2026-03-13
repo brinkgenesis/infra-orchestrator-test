@@ -197,6 +197,27 @@ describe('frontend config', () => {
       const proxy = server['proxy'] as Record<string, unknown>;
       expect(proxy['/api']).toBeDefined();
     });
+
+    it('forwards proxy rewrite function when present', () => {
+      const rewrite = (p: string) => p.replace(/^\/api/, '');
+      const cfg = createFrontendConfig({
+        dev: { proxy: { '/api': { target: 'http://localhost:4000', rewrite } } },
+      });
+      const vite = buildViteConfig(cfg);
+      const server = vite['server'] as Record<string, unknown>;
+      const proxy = server['proxy'] as Record<string, Record<string, unknown>>;
+      expect(proxy['/api']!['rewrite']).toBe(rewrite);
+    });
+
+    it('omits rewrite key when not provided', () => {
+      const cfg = createFrontendConfig({
+        dev: { proxy: { '/api': { target: 'http://localhost:4000' } } },
+      });
+      const vite = buildViteConfig(cfg);
+      const server = vite['server'] as Record<string, unknown>;
+      const proxy = server['proxy'] as Record<string, Record<string, unknown>>;
+      expect(proxy['/api']!['rewrite']).toBeUndefined();
+    });
   });
 
   it('createFrontendConfig merges assets overrides', () => {
