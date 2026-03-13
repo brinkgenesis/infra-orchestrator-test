@@ -193,6 +193,59 @@ export function exhaustiveCheck(value: never): never {
   throw new Error(`Unhandled case: ${String(value)}`);
 }
 
+export interface BulkheadOptions {
+  maxConcurrent: number;
+  maxQueue: number;
+}
+
+export class Bulkhead {
+  private running = 0;
+  private queue: Array<() => void> = [];
+  private readonly maxConcurrent: number;
+  private readonly maxQueue: number;
+
+  constructor(opts: BulkheadOptions) {
+    if (opts.maxConcurrent < 1 || !Number.isFinite(opts.maxConcurrent)) {
+      throw new Error('maxConcurrent must be a positive finite integer');
+    }
+    if (opts.maxQueue < 0 || !Number.isFinite(opts.maxQueue)) {
+      throw new Error('maxQueue must be a non-negative finite integer');
+    }
+    this.maxConcurrent = opts.maxConcurrent;
+    this.maxQueue = opts.maxQueue;
+  }
+
+  async execute<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.running < this.maxConcurrent) {
+      this.running++;
+    } else if (this.queue.length < this.maxQueue) {
+      await new Promise<void>((resolve) => {
+        this.queue.push(resolve);
+      });
+    } else {
+      throw new BulkheadFullError();
+    }
+    try {
+      return await fn();
+    } finally {
+      this.running--;
+      const next = this.queue.shift();
+      if (next) {
+        this.running++;
+        next();
+      }
+    }
+  }
+
+  getRunning(): number {
+    return this.running;
+  }
+
+  getQueued(): number {
+    return this.queue.length;
+  }
+}
+
 export async function checkHealth(
   service: string,
   probe: () => Promise<void>,
