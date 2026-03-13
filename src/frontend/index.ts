@@ -1,7 +1,7 @@
 import config, { createFrontendConfig } from '../../frontend.config';
-import type { FrontendConfig, DevConfig, BuildConfig } from '../../frontend.config';
+import type { FrontendConfig, DevConfig, BuildConfig, DeepPartial } from '../../frontend.config';
 
-export type { FrontendConfig, DevConfig, BuildConfig };
+export type { FrontendConfig, DevConfig, BuildConfig, DeepPartial };
 
 /** Returns the dev server URL (http://localhost:{port}) from the given frontend config. */
 export function getDevServerUrl(cfg: FrontendConfig = config): string {
