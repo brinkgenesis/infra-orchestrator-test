@@ -57,6 +57,26 @@ export function isMinifyEnabled(cfg: FrontendConfig = config): boolean {
   return cfg.build.minify;
 }
 
+export function createPreviewConfig(
+  cfg: FrontendConfig = config,
+  options: { host?: string; port?: number; strictPort?: boolean } = {},
+): Record<string, unknown> {
+  const { host = 'localhost', port = cfg.dev.port + 1, strictPort = false } = options;
+  return {
+    preview: {
+      host,
+      port,
+      strictPort,
+    },
+    build: {
+      outDir: cfg.build.outDir,
+      sourcemap: cfg.build.sourcemap,
+      minify: cfg.build.minify,
+      target: cfg.build.target,
+    },
+  };
+}
+
 export function getBuildTarget(cfg: FrontendConfig = config): string {
   return cfg.build.target;
 }

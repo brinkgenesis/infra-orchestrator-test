@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getDevServerUrl, getBuildOutDir, isSourcemapEnabled, isHmrEnabled, createFrontendConfig, getPublicUrl, getAssetPublicPath, resolveAssetUrl, isDevMode, isMinifyEnabled, getBuildTarget, getPublicDir, getAssetExtensions, getProxyConfig, shouldOpenBrowser, buildViteConfig, frontendConfig } from './index';
+import { getDevServerUrl, getBuildOutDir, isSourcemapEnabled, isHmrEnabled, createFrontendConfig, getPublicUrl, getAssetPublicPath, resolveAssetUrl, isDevMode, isMinifyEnabled, getBuildTarget, getPublicDir, getAssetExtensions, getProxyConfig, shouldOpenBrowser, buildViteConfig, createPreviewConfig, frontendConfig } from './index';
 import type { FrontendConfig } from './index';
 
 function makeConfig(overrides: {
@@ -223,5 +223,47 @@ describe('frontend config', () => {
   it('createFrontendConfig merges assets overrides', () => {
     const cfg = createFrontendConfig({ assets: { publicDir: 'static' } });
     expect(cfg.assets.publicDir).toBe('static');
+  });
+
+  describe('createPreviewConfig', () => {
+    it('generates preview config with defaults', () => {
+      const preview = createPreviewConfig();
+      const previewSection = preview['preview'] as Record<string, unknown>;
+      expect(previewSection['host']).toBe('localhost');
+      expect(previewSection['port']).toBe(3001);
+      expect(previewSection['strictPort']).toBe(false);
+    });
+
+    it('includes build settings from config', () => {
+      const preview = createPreviewConfig();
+      const build = preview['build'] as Record<string, unknown>;
+      expect(build['outDir']).toBe('dist');
+      expect(build['sourcemap']).toBe(true);
+      expect(build['minify']).toBe(true);
+      expect(build['target']).toBe('es2022');
+    });
+
+    it('respects custom options', () => {
+      const preview = createPreviewConfig(undefined, { host: '0.0.0.0', port: 5000, strictPort: true });
+      const previewSection = preview['preview'] as Record<string, unknown>;
+      expect(previewSection['host']).toBe('0.0.0.0');
+      expect(previewSection['port']).toBe(5000);
+      expect(previewSection['strictPort']).toBe(true);
+    });
+
+    it('uses custom config for build settings', () => {
+      const cfg = makeConfig({ build: { outDir: 'build', minify: false } });
+      const preview = createPreviewConfig(cfg);
+      const build = preview['build'] as Record<string, unknown>;
+      expect(build['outDir']).toBe('build');
+      expect(build['minify']).toBe(false);
+    });
+
+    it('defaults preview port to dev port + 1', () => {
+      const cfg = makeConfig({ dev: { port: 8080 } });
+      const preview = createPreviewConfig(cfg);
+      const previewSection = preview['preview'] as Record<string, unknown>;
+      expect(previewSection['port']).toBe(8081);
+    });
   });
 });
