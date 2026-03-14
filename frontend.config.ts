@@ -61,7 +61,11 @@ export function createFrontendConfig(overrides: Partial<{
   return {
     dev: { ...config.dev, ...overrides.dev },
     build: { ...config.build, ...overrides.build },
-    assets: { ...config.assets, ...overrides.assets },
+    assets: {
+      ...config.assets,
+      ...overrides.assets,
+      extensions: [...(overrides.assets?.extensions ?? config.assets.extensions)],
+    },
   };
 }
 

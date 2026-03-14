@@ -715,7 +715,13 @@ export function parsePathParams(
     const pat = patternParts[i]!;
     const val = pathParts[i]!;
     if (pat.startsWith(':')) {
-      params[pat.slice(1)] = decodeURIComponent(val);
+      let decoded: string;
+      try {
+        decoded = decodeURIComponent(val);
+      } catch {
+        decoded = val;
+      }
+      params[pat.slice(1)] = decoded;
     } else if (pat !== val) {
       return null;
     }

@@ -994,10 +994,12 @@ export class AdaptiveConcurrencyLimiter {
       throw err;
     } finally {
       this.running--;
-      const next = this.queue.shift();
-      if (next !== undefined) {
-        next();
-      } else {
+      const availableSlots = Math.max(0, this.limit - this.running);
+      const toWake = Math.min(availableSlots, this.queue.length);
+      for (let i = 0; i < toWake; i++) {
+        this.queue.shift()!();
+      }
+      if (this.queue.length === 0) {
         this.notifyDrain();
       }
     }

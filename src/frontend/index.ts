@@ -169,7 +169,11 @@ const presets: Record<PresetName, FrontendConfig> = {
 
 export function getPreset(name: PresetName): FrontendConfig {
   const p = presets[name];
-  return { dev: { ...p.dev }, build: { ...p.build }, assets: { ...p.assets } };
+  return {
+    dev: { ...p.dev, proxy: { ...p.dev.proxy } },
+    build: { ...p.build },
+    assets: { ...p.assets, extensions: [...p.assets.extensions] },
+  };
 }
 
 export function getPresetWith(
