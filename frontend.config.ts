@@ -53,6 +53,7 @@ const config: FrontendConfig = {
   },
 };
 
+<<<<<<< HEAD
 export function createFrontendConfig(overrides: Partial<{
   dev: Partial<FrontendConfig['dev']>;
   build: Partial<FrontendConfig['build']>;
@@ -66,7 +67,20 @@ export function createFrontendConfig(overrides: Partial<{
       ...overrides.assets,
       extensions: [...(overrides.assets?.extensions ?? config.assets.extensions)],
     },
+=======
+export function createFrontendConfig(overrides: DeepPartial<FrontendConfig> = {}): FrontendConfig {
+  const cfg: FrontendConfig = {
+    dev: { ...defaultDev, ...overrides.dev, proxy: { ...defaultDev.proxy, ...overrides.dev?.proxy } as Record<string, string> },
+    build: { ...defaultBuild, ...overrides.build },
+>>>>>>> 66093d5 (feat: add assets config support to frontend config and utilities)
   };
+  if (overrides.assets) {
+    cfg.assets = {
+      publicDir: overrides.assets.publicDir ?? 'public',
+      extensions: overrides.assets.extensions ?? ['png', 'jpg', 'svg', 'ico'],
+    };
+  }
+  return cfg;
 }
 
 export default config;

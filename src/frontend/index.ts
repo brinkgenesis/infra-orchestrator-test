@@ -1,9 +1,15 @@
 import config, { createFrontendConfig } from '../../frontend.config';
+<<<<<<< HEAD
 import type { FrontendConfig, DevProxyTarget, DevConfig, BuildConfig, AssetsConfig } from '../../frontend.config';
 
 export type { FrontendConfig, DevProxyTarget, DevConfig, BuildConfig, AssetsConfig };
 
 export { createFrontendConfig };
+=======
+import type { FrontendConfig, DevConfig, BuildConfig, AssetsConfig } from '../../frontend.config';
+
+export type { FrontendConfig, DevConfig, BuildConfig, AssetsConfig };
+>>>>>>> 66093d5 (feat: add assets config support to frontend config and utilities)
 
 export function getDevServerUrl(cfg: FrontendConfig = config): string {
   return `http://localhost:${cfg.dev.port}`;
@@ -126,17 +132,30 @@ export function buildViteConfig(
   };
 }
 
+<<<<<<< HEAD
+=======
+/** Returns the assets config if defined, or a sensible default. */
+>>>>>>> 66093d5 (feat: add assets config support to frontend config and utilities)
 export function getAssetsConfig(cfg: FrontendConfig = config): AssetsConfig {
   return cfg.assets ?? { publicDir: 'public', extensions: ['png', 'jpg', 'svg', 'ico'] };
 }
 
+<<<<<<< HEAD
 export function resolveAssetPublicPath(fileName: string, cfg: FrontendConfig = config): string {
+=======
+/** Returns the public path for a static asset file within the assets public directory. */
+export function resolveAssetPublicPath(
+  fileName: string,
+  cfg: FrontendConfig = config,
+): string {
+>>>>>>> 66093d5 (feat: add assets config support to frontend config and utilities)
   const assets = getAssetsConfig(cfg);
   const dir = assets.publicDir.replace(/\/+$/, '');
   const clean = fileName.replace(/^\/+/, '');
   return `${dir}/${clean}`;
 }
 
+<<<<<<< HEAD
 export function isAllowedAsset(fileName: string, cfg: FrontendConfig = config): boolean {
   const dot = fileName.lastIndexOf('.');
   if (dot === -1) return false;
@@ -202,3 +221,6 @@ export function deserializeConfig(json: string): FrontendConfig {
 }
 
 export { config as frontendConfig };
+=======
+export { config as frontendConfig, createFrontendConfig };
+>>>>>>> 66093d5 (feat: add assets config support to frontend config and utilities)
