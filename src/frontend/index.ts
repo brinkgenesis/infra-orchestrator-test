@@ -84,9 +84,13 @@ export function formatDevBanner(cfg: FrontendConfig = config): string {
   return `Dev server: http://localhost:${cfg.dev.port} | HMR: ${hmrStatus}`;
 }
 
-/** Returns a JSON snapshot string of the dev and build sections of the frontend config. */
+/** Returns a JSON snapshot string of the frontend config, including assets when configured. */
 export function getConfigSnapshot(cfg: FrontendConfig = config): string {
-  return JSON.stringify({ dev: cfg.dev, build: cfg.build });
+  const snapshot: Record<string, unknown> = { dev: cfg.dev, build: cfg.build };
+  if (cfg.assets) {
+    snapshot['assets'] = cfg.assets;
+  }
+  return JSON.stringify(snapshot);
 }
 
 export interface DevProxyConfig {

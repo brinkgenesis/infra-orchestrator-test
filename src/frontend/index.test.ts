@@ -194,6 +194,20 @@ describe('frontend config', () => {
     expect(parsed.build.outDir).toBe('dist');
   });
 
+  it('getConfigSnapshot includes assets when configured', () => {
+    const cfg = createFrontendConfig({ assets: { publicDir: 'static', extensions: ['.png'] } });
+    const parsed = JSON.parse(getConfigSnapshot(cfg));
+    expect(parsed.assets).toBeDefined();
+    expect(parsed.assets.publicDir).toBe('static');
+    expect(parsed.assets.extensions).toEqual(['.png']);
+  });
+
+  it('getConfigSnapshot omits assets when not configured', () => {
+    const cfg = createFrontendConfig();
+    const parsed = JSON.parse(getConfigSnapshot(cfg));
+    expect(parsed.assets).toBeUndefined();
+  });
+
   it('createDevProxyConfig returns proxy config with defaults', () => {
     const proxy = createDevProxyConfig('http://localhost:8080');
     expect(proxy.target).toBe('http://localhost:8080');
