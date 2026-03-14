@@ -1164,11 +1164,11 @@ describe('withHedging', () => {
   });
 
   it('rejects if all attempts fail', async () => {
-    // Primary rejects immediately before the hedged timer fires,
-    // so only 1 call is made and the promise rejects with the last error.
+    // Even though the primary rejects immediately, the hedged timer still fires
+    // and launches a second attempt before giving up — both attempts are tried.
     const fn = vi.fn().mockRejectedValue(new Error('all down'));
     await expect(withHedging(fn, { delayMs: 5 })).rejects.toThrow('all down');
-    expect(fn).toHaveBeenCalledTimes(1);
+    expect(fn).toHaveBeenCalledTimes(2);
   });
 
   it('throws if maxAttempts is less than 1', async () => {

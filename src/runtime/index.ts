@@ -762,9 +762,6 @@ export async function withHedging<T>(
         if (idx !== -1) timers.splice(idx, 1);
         if (!settled) {
           attempt();
-        } else if (!settled && completed >= launched && timers.length === 0) {
-          // All scheduled timers fired but everything already failed
-          reject(lastError);
         }
       }, opts.delayMs * i);
       timers.push(timer);
