@@ -57,7 +57,11 @@ export async function withRetry<T>(
         throw err;
       }
       if (attempt < opts.maxAttempts - 1) {
-        await new Promise((r) => setTimeout(r, computeBackoff(attempt, opts)));
+        const delay =
+          err instanceof RetryableError && err.retryAfterMs !== undefined
+            ? err.retryAfterMs
+            : computeBackoff(attempt, opts);
+        await new Promise((r) => setTimeout(r, delay));
       }
     }
   }
@@ -386,10 +390,12 @@ export interface DeadlineOptions {
 /** Propagates a cancellation deadline across async call chains. */
 export class DeadlineContext {
   private readonly deadline: number;
+  private readonly timeoutMs: number;
   private readonly message: string;
   private cancelled = false;
 
   constructor(opts: DeadlineOptions) {
+    this.timeoutMs = opts.timeoutMs;
     this.deadline = Date.now() + opts.timeoutMs;
     this.message = opts.message ?? `Deadline exceeded after ${opts.timeoutMs}ms`;
   }
@@ -409,10 +415,10 @@ export class DeadlineContext {
     this.cancelled = true;
   }
 
-  /** Throws if the deadline has expired or the context was cancelled. */
+  /** Throws a TimeoutError if the deadline has expired or the context was cancelled. */
   check(): void {
     if (this.isExpired()) {
-      throw new Error(this.message);
+      throw new TimeoutError(this.timeoutMs, this.message);
     }
   }
 
@@ -718,12 +724,13 @@ export async function withHedging<T>(
 
   return new Promise<T>((resolve, reject) => {
     let settled = false;
-    let pending = 0;
+    let launched = 0;
+    let completed = 0;
     let lastError: unknown;
     const timers: ReturnType<typeof setTimeout>[] = [];
 
     const attempt = () => {
-      pending++;
+      launched++;
       fn().then(
         (result) => {
           if (!settled) {
@@ -734,10 +741,10 @@ export async function withHedging<T>(
         },
         (err) => {
           lastError = err;
-          pending--;
-          if (pending === 0 && !settled) {
+          completed++;
+          // Only reject when all launched attempts have finished AND no more are scheduled
+          if (!settled && completed >= launched && timers.length === 0) {
             settled = true;
-            for (const t of timers) clearTimeout(t);
             reject(lastError);
           }
         },
@@ -750,8 +757,14 @@ export async function withHedging<T>(
     // Schedule hedged attempts
     for (let i = 1; i < maxAttempts; i++) {
       const timer = setTimeout(() => {
+        // Remove this timer from the list so we can track remaining scheduled attempts
+        const idx = timers.indexOf(timer);
+        if (idx !== -1) timers.splice(idx, 1);
         if (!settled) {
           attempt();
+        } else if (!settled && completed >= launched && timers.length === 0) {
+          // All scheduled timers fired but everything already failed
+          reject(lastError);
         }
       }, opts.delayMs * i);
       timers.push(timer);
