@@ -47,6 +47,11 @@ const defaultBuild: BuildConfig = {
   target: 'ES2022',
 };
 
+const defaultAssets: AssetsConfig = {
+  publicDir: 'public',
+  extensions: ['.png', '.jpg', '.jpeg', '.svg', '.gif', '.webp', '.ico', '.woff', '.woff2'] as const,
+};
+
 /**
  * Frontend & DX configuration for the infra orchestrator.
  */
@@ -56,11 +61,19 @@ const config: FrontendConfig = {
 };
 
 export function createFrontendConfig(overrides: DeepPartial<FrontendConfig> = {}): FrontendConfig {
-  return {
+  const result: FrontendConfig = {
     dev: { ...defaultDev, ...overrides.dev, proxy: { ...defaultDev.proxy, ...overrides.dev?.proxy } as Record<string, string> },
     build: { ...defaultBuild, ...overrides.build },
   };
+  if (overrides.assets) {
+    result.assets = {
+      ...defaultAssets,
+      ...overrides.assets,
+      extensions: overrides.assets.extensions ?? defaultAssets.extensions,
+    };
+  }
+  return result;
 }
 
-export { defaultDev, defaultBuild };
+export { defaultDev, defaultBuild, defaultAssets };
 export default config;

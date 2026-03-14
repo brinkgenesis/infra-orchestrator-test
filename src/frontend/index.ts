@@ -1,7 +1,7 @@
-import config, { createFrontendConfig } from '../../frontend.config';
-import type { FrontendConfig, DevConfig, BuildConfig } from '../../frontend.config';
+import config, { createFrontendConfig, defaultAssets } from '../../frontend.config';
+import type { FrontendConfig, DevConfig, BuildConfig, AssetsConfig } from '../../frontend.config';
 
-export type { FrontendConfig, DevConfig, BuildConfig };
+export type { FrontendConfig, DevConfig, BuildConfig, AssetsConfig };
 
 /** Returns the dev server URL (http://localhost:{port}) from the given frontend config. */
 export function getDevServerUrl(cfg: FrontendConfig = config): string {
@@ -305,4 +305,21 @@ export function createBuildEnvironment(
   };
 }
 
-export { config as frontendConfig, createFrontendConfig };
+/** Returns the assets config from the frontend config, falling back to defaults. */
+export function getAssetsConfig(cfg: FrontendConfig = config): AssetsConfig {
+  return cfg.assets ?? defaultAssets;
+}
+
+/** Returns true if the given file extension is in the allowed asset extensions list. */
+export function isAllowedAssetExtension(ext: string, cfg: FrontendConfig = config): boolean {
+  const assets = getAssetsConfig(cfg);
+  const normalized = ext.startsWith('.') ? ext : `.${ext}`;
+  return assets.extensions.includes(normalized);
+}
+
+/** Returns the public directory path from the assets config. */
+export function getPublicDir(cfg: FrontendConfig = config): string {
+  return getAssetsConfig(cfg).publicDir;
+}
+
+export { config as frontendConfig, createFrontendConfig, defaultAssets };

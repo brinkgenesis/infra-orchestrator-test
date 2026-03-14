@@ -24,6 +24,10 @@ import {
   shouldOpenBrowser,
   resolveFrontendConfig,
   getProxyEntries,
+  getAssetsConfig,
+  isAllowedAssetExtension,
+  getPublicDir,
+  defaultAssets,
   getBuildTarget,
   hasSourcemaps,
   isMinifyEnabled,
@@ -492,6 +496,58 @@ describe('frontend config', () => {
   it('hasSourcemaps returns false when disabled', () => {
     const cfg = createFrontendConfig({ build: { sourcemap: false } });
     expect(hasSourcemaps(cfg)).toBe(false);
+  });
+
+  it('getAssetsConfig returns defaults when no assets in config', () => {
+    const assets = getAssetsConfig();
+    expect(assets.publicDir).toBe('public');
+    expect(assets.extensions).toContain('.png');
+    expect(assets.extensions).toContain('.svg');
+  });
+
+  it('getAssetsConfig returns custom assets when provided', () => {
+    const cfg = createFrontendConfig({ assets: { publicDir: 'static', extensions: ['.png'] } });
+    const assets = getAssetsConfig(cfg);
+    expect(assets.publicDir).toBe('static');
+    expect(assets.extensions).toEqual(['.png']);
+  });
+
+  it('isAllowedAssetExtension returns true for allowed extensions', () => {
+    expect(isAllowedAssetExtension('.png')).toBe(true);
+    expect(isAllowedAssetExtension('.svg')).toBe(true);
+    expect(isAllowedAssetExtension('.woff2')).toBe(true);
+  });
+
+  it('isAllowedAssetExtension returns false for disallowed extensions', () => {
+    expect(isAllowedAssetExtension('.exe')).toBe(false);
+    expect(isAllowedAssetExtension('.ts')).toBe(false);
+  });
+
+  it('isAllowedAssetExtension normalizes extension without dot', () => {
+    expect(isAllowedAssetExtension('png')).toBe(true);
+    expect(isAllowedAssetExtension('exe')).toBe(false);
+  });
+
+  it('getPublicDir returns default public directory', () => {
+    expect(getPublicDir()).toBe('public');
+  });
+
+  it('getPublicDir returns custom public directory', () => {
+    const cfg = createFrontendConfig({ assets: { publicDir: 'static', extensions: ['.png'] } });
+    expect(getPublicDir(cfg)).toBe('static');
+  });
+
+  it('defaultAssets is exported and has expected shape', () => {
+    expect(defaultAssets.publicDir).toBe('public');
+    expect(Array.isArray(defaultAssets.extensions)).toBe(true);
+    expect(defaultAssets.extensions.length).toBeGreaterThan(0);
+  });
+
+  it('createFrontendConfig with assets preserves provided values', () => {
+    const cfg = createFrontendConfig({ assets: { publicDir: 'static', extensions: ['.webp'] } });
+    expect(cfg.assets).toBeDefined();
+    expect(cfg.assets!.publicDir).toBe('static');
+    expect(cfg.assets!.extensions).toEqual(['.webp']);
   });
 });
 
