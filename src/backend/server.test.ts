@@ -47,6 +47,21 @@ describe('Server', () => {
     expect(server.removeRoute('DELETE', '/api/users')).toBe(false);
   });
 
+  it('should prevent duplicate route registrations', () => {
+    const server = new Server();
+    server.addRoute({ method: 'GET', path: '/api/users', handler: 'listUsers' });
+    server.addRoute({ method: 'GET', path: '/api/users', handler: 'listUsersV2' });
+    expect(server.getRoutes()).toHaveLength(1);
+    expect(server.getRoutes()[0]?.handler).toBe('listUsers');
+  });
+
+  it('should allow same path with different methods', () => {
+    const server = new Server();
+    server.addRoute({ method: 'GET', path: '/api/users', handler: 'listUsers' });
+    server.addRoute({ method: 'POST', path: '/api/users', handler: 'createUser' });
+    expect(server.getRoutes()).toHaveLength(2);
+  });
+
   it('should track running state', () => {
     const server = new Server();
     expect(server.isRunning()).toBe(false);

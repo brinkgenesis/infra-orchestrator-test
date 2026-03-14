@@ -53,4 +53,16 @@ const config: FrontendConfig = {
   },
 };
 
+export function createFrontendConfig(overrides: Partial<{
+  dev: Partial<FrontendConfig['dev']>;
+  build: Partial<FrontendConfig['build']>;
+  assets: Partial<FrontendConfig['assets']>;
+}> = {}): FrontendConfig {
+  return {
+    dev: { ...config.dev, ...overrides.dev },
+    build: { ...config.build, ...overrides.build },
+    assets: { ...config.assets, ...overrides.assets },
+  };
+}
+
 export default config;
