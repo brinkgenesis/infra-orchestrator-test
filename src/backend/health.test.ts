@@ -51,7 +51,6 @@ describe('buildBaseUrl', () => {
   });
 });
 
-<<<<<<< HEAD
 describe('mapHealthStatusToHttpCode', () => {
   it('returns 200 for healthy', () => {
     expect(mapHealthStatusToHttpCode('healthy')).toBe(200);
@@ -63,7 +62,9 @@ describe('mapHealthStatusToHttpCode', () => {
 
   it('returns 503 for unhealthy', () => {
     expect(mapHealthStatusToHttpCode('unhealthy')).toBe(503);
-=======
+  });
+});
+
 describe('createHealthChecker', () => {
   it('should return healthy when no probes are registered', async () => {
     const checker = createHealthChecker();
@@ -176,6 +177,5 @@ describe('createHealthChecker', () => {
     const result = await checker.check();
     expect(result.dependencies).toHaveLength(1);
     expect(result.dependencies[0]!.status).toBe('up');
->>>>>>> 19aea29 (feat: add dependency health checker with probe aggregation)
   });
 });
