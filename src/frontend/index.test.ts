@@ -1,5 +1,27 @@
 import { describe, it, expect } from 'vitest';
-import { getDevServerUrl, getBuildOutDir, isSourcemapEnabled, isHmrEnabled, createFrontendConfig, getPublicUrl, getAssetPublicPath, resolveAssetUrl, isDevMode, isMinifyEnabled, getBuildTarget, getPublicDir, getAssetExtensions, getProxyConfig, shouldOpenBrowser, getDevProxyPaths, buildViteConfig, createPreviewConfig, frontendConfig } from './index';
+import {
+  getDevServerUrl,
+  getBuildOutDir,
+  isSourcemapEnabled,
+  isHmrEnabled,
+  createFrontendConfig,
+  getPublicUrl,
+  getAssetPublicPath,
+  resolveAssetUrl,
+  isDevMode,
+  isMinifyEnabled,
+  getBuildTarget,
+  getPublicDir,
+  getAssetExtensions,
+  getProxyConfig,
+  shouldOpenBrowser,
+  getDevProxyPaths,
+  buildViteConfig,
+  createPreviewConfig,
+  frontendConfig,
+  getAssetsConfig,
+  resolveAssetPublicPath,
+} from './index';
 import type { FrontendConfig } from './index';
 
 function makeConfig(overrides: {
@@ -163,6 +185,11 @@ describe('frontend config', () => {
     expect(shouldOpenBrowser()).toBe(false);
   });
 
+  it('shouldOpenBrowser returns true when open is enabled', () => {
+    const cfg = createFrontendConfig({ dev: { open: true } });
+    expect(shouldOpenBrowser(cfg)).toBe(true);
+  });
+
   it('getDevProxyPaths returns proxy path keys from default config', () => {
     const paths = getDevProxyPaths();
     expect(paths).toContain('/api');
@@ -274,5 +301,44 @@ describe('frontend config', () => {
       const previewSection = preview['preview'] as Record<string, unknown>;
       expect(previewSection['port']).toBe(8081);
     });
+  });
+
+  it('createFrontendConfig passes through assets override', () => {
+    const cfg = createFrontendConfig({ assets: { publicDir: 'static', extensions: ['png', 'webp'] } });
+    expect(cfg.assets).toBeDefined();
+    expect(cfg.assets.publicDir).toBe('static');
+    expect(cfg.assets.extensions).toEqual(['png', 'webp']);
+  });
+
+  it('createFrontendConfig preserves default assets when not overridden', () => {
+    const cfg = createFrontendConfig();
+    expect(cfg.assets).toBeDefined();
+    expect(cfg.assets.publicDir).toBe('public');
+  });
+
+  it('getAssetsConfig returns default when assets not set', () => {
+    const assets = getAssetsConfig();
+    expect(assets.publicDir).toBe('public');
+    expect(assets.extensions).toContain('png');
+  });
+
+  it('getAssetsConfig returns config assets when set', () => {
+    const cfg = createFrontendConfig({ assets: { publicDir: 'static', extensions: ['webp'] } });
+    const assets = getAssetsConfig(cfg);
+    expect(assets.publicDir).toBe('static');
+    expect(assets.extensions).toEqual(['webp']);
+  });
+
+  it('resolveAssetPublicPath joins publicDir and filename', () => {
+    expect(resolveAssetPublicPath('logo.png')).toBe('public/logo.png');
+  });
+
+  it('resolveAssetPublicPath strips leading slashes', () => {
+    expect(resolveAssetPublicPath('/images/hero.jpg')).toBe('public/images/hero.jpg');
+  });
+
+  it('resolveAssetPublicPath respects custom assets config', () => {
+    const cfg = createFrontendConfig({ assets: { publicDir: 'static/', extensions: ['svg'] } });
+    expect(resolveAssetPublicPath('icon.svg', cfg)).toBe('static/icon.svg');
   });
 });

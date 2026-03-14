@@ -49,7 +49,10 @@ export class Server {
   }
 
   addRoute(route: Route): void {
-    this.routes.push(route);
+    const exists = this.routes.some(r => r.method === route.method && r.path === route.path);
+    if (!exists) {
+      this.routes.push(route);
+    }
   }
 
   removeRoute(method: Route['method'], path: string): boolean {

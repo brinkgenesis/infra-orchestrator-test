@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getHealthStatus, buildBaseUrl } from './health';
+import { getHealthStatus, buildBaseUrl, mapHealthStatusToHttpCode } from './health';
 import type { HealthStatus } from './health';
 import type { AppConfig } from '../index';
 
@@ -48,5 +48,19 @@ describe('buildBaseUrl', () => {
   it('should use localhost for default-like config', () => {
     const config: AppConfig = { port: 3000, host: 'localhost', env: 'development' };
     expect(buildBaseUrl(config)).toBe('http://localhost:3000');
+  });
+});
+
+describe('mapHealthStatusToHttpCode', () => {
+  it('returns 200 for healthy', () => {
+    expect(mapHealthStatusToHttpCode('healthy')).toBe(200);
+  });
+
+  it('returns 207 for degraded', () => {
+    expect(mapHealthStatusToHttpCode('degraded')).toBe(207);
+  });
+
+  it('returns 503 for unhealthy', () => {
+    expect(mapHealthStatusToHttpCode('unhealthy')).toBe(503);
   });
 });
