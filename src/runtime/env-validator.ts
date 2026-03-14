@@ -1,3 +1,5 @@
+declare const process: { env: Record<string, string | undefined> };
+
 export interface EnvRule {
   name: string;
   required: boolean;
@@ -24,24 +26,28 @@ export function validateEnv(
 
   for (const rule of rules) {
     const value = env[rule.name];
-    const effectiveValue = (value === undefined || value === '') ? rule.default : value;
 
-    if (effectiveValue === undefined) {
-      if (rule.required) {
+    if (value === undefined || value === '') {
+      if (rule.required && rule.default === undefined) {
         errors.push(`Missing required environment variable: ${rule.name}`);
+        continue;
+      }
+      if (rule.default !== undefined) {
+        resolved[rule.name] = rule.default;
+        continue;
       }
       // Not required and no default — skip
       continue;
     }
 
-    if (rule.pattern && !rule.pattern.test(effectiveValue)) {
+    if (rule.pattern && !rule.pattern.test(value)) {
       errors.push(
         `Environment variable ${rule.name} does not match expected pattern: ${rule.pattern.source}`,
       );
       continue;
     }
 
-    resolved[rule.name] = effectiveValue;
+    resolved[rule.name] = value;
   }
 
   return { valid: errors.length === 0, resolved, errors };

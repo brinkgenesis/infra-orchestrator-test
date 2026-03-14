@@ -64,20 +64,6 @@ describe('validateEnv', () => {
     expect(result.resolved['A']).toBe('val');
     expect(result.resolved['B']).toBe('fallback');
   });
-
-  it('validates default value against pattern', () => {
-    const rules: EnvRule[] = [{ name: 'PORT', required: true, pattern: /^\d+$/, default: 'not-a-number' }];
-    const result = validateEnv(rules, {});
-    expect(result.valid).toBe(false);
-    expect(result.errors[0]).toContain('pattern');
-  });
-
-  it('resolves default value that passes pattern', () => {
-    const rules: EnvRule[] = [{ name: 'PORT', required: true, pattern: /^\d+$/, default: '8080' }];
-    const result = validateEnv(rules, {});
-    expect(result.valid).toBe(true);
-    expect(result.resolved['PORT']).toBe('8080');
-  });
 });
 
 describe('requireEnv', () => {

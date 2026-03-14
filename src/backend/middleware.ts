@@ -7,7 +7,7 @@ export interface MiddlewareStack {
   logging: boolean;
 }
 
-export interface MiddlewareRequestContext {
+export interface RequestContext {
   requestId: string;
   startedAt: number;
   path: string;
@@ -26,7 +26,6 @@ const defaultRateLimit: RateLimitConfig = {
   maxRequests: 100,
 };
 
-/** Creates a middleware stack configuration, merging any provided overrides with defaults. */
 export function createMiddlewareStack(
   overrides?: Partial<MiddlewareStack>
 ): MiddlewareStack {
@@ -38,16 +37,15 @@ export function createMiddlewareStack(
   };
 }
 
-/** Builds a map of CORS response headers based on the CORS config and optional incoming origin. */
+/** Builds CORS response headers. Per the spec, Access-Control-Allow-Origin must be
+ *  a single origin or '*', not a comma-separated list. When the config lists specific
+ *  origins, pass the incoming request origin so the correct one can be echoed back. */
 export function createCorsHeaders(cors: CorsConfig, requestOrigin?: string): Record<string, string> {
   const headers: Record<string, string> = {
     'Access-Control-Allow-Methods': cors.allowedMethods.join(', '),
-    'Access-Control-Allow-Headers': (cors.allowedHeaders ?? []).join(', '),
-    'Access-Control-Max-Age': String(cors.maxAge ?? 0),
+    'Access-Control-Allow-Headers': cors.allowedHeaders.join(', '),
+    'Access-Control-Max-Age': String(cors.maxAge),
   };
-  if (cors.allowCredentials) {
-    headers['Access-Control-Allow-Credentials'] = 'true';
-  }
   if (cors.allowedOrigins.includes('*')) {
     headers['Access-Control-Allow-Origin'] = '*';
   } else if (requestOrigin !== undefined && cors.allowedOrigins.includes(requestOrigin)) {
@@ -57,7 +55,6 @@ export function createCorsHeaders(cors: CorsConfig, requestOrigin?: string): Rec
   return headers;
 }
 
-/** Returns true if the given request count has exceeded the rate limit. */
 export function isRateLimited(
   requestCount: number,
   config: RateLimitConfig
@@ -67,11 +64,10 @@ export function isRateLimited(
 
 let counter = 0;
 
-/** Creates a new middleware request context with a unique request ID and start timestamp. */
 export function createRequestContext(
   path: string,
   method: string
-): MiddlewareRequestContext {
+): RequestContext {
   counter += 1;
   return {
     requestId: `req-${Date.now()}-${counter}`,
@@ -81,12 +77,10 @@ export function createRequestContext(
   };
 }
 
-/** Returns the number of milliseconds elapsed since the request context was created. */
-export function getElapsedMs(ctx: MiddlewareRequestContext): number {
+export function getElapsedMs(ctx: RequestContext): number {
   return Date.now() - ctx.startedAt;
 }
 
-/** Resolves the appropriate middleware stack from a backend config, applying cors and rate-limit overrides. */
 export function resolveMiddlewareForConfig(
   cfg: BackendConfig
 ): MiddlewareStack {
@@ -98,4 +92,33 @@ export function resolveMiddlewareForConfig(
     overrides.rateLimit = cfg.rateLimit;
   }
   return createMiddlewareStack(overrides);
+}
+
+export interface RequestLogEntry {
+  requestId: string;
+  method: string;
+  path: string;
+  statusCode: number;
+  durationMs: number;
+  timestamp: string;
+}
+
+/** Formats a completed request into a structured log entry. */
+export function createRequestLogEntry(
+  ctx: RequestContext,
+  statusCode: number
+): RequestLogEntry {
+  return {
+    requestId: ctx.requestId,
+    method: ctx.method,
+    path: ctx.path,
+    statusCode,
+    durationMs: getElapsedMs(ctx),
+    timestamp: new Date().toISOString(),
+  };
+}
+
+/** Formats a log entry as a single-line string suitable for structured logging. */
+export function formatLogEntry(entry: RequestLogEntry): string {
+  return `${entry.method} ${entry.path} ${entry.statusCode} ${entry.durationMs}ms [${entry.requestId}]`;
 }

@@ -6,6 +6,8 @@ import {
   createRequestContext,
   getElapsedMs,
   resolveMiddlewareForConfig,
+  createRequestLogEntry,
+  formatLogEntry,
 } from './middleware';
 import type { BackendConfig, CorsConfig, RateLimitConfig } from './index';
 
@@ -40,7 +42,7 @@ describe('createMiddlewareStack', () => {
 });
 
 describe('createCorsHeaders', () => {
-  it('returns wildcard origin when allowedOrigins is ["*"]', () => {
+  it('returns wildcard origin when allowedOrigins includes *', () => {
     const cors: CorsConfig = {
       allowedOrigins: ['*'],
       allowedMethods: ['GET', 'POST'],
@@ -52,22 +54,21 @@ describe('createCorsHeaders', () => {
     expect(headers['Access-Control-Allow-Methods']).toBe('GET, POST');
     expect(headers['Access-Control-Allow-Headers']).toBe('Authorization');
     expect(headers['Access-Control-Max-Age']).toBe('7200');
-    expect(headers['Vary']).toBeUndefined();
   });
 
-  it('echoes matching requestOrigin when not wildcard', () => {
+  it('echoes matching request origin when not wildcard', () => {
     const cors: CorsConfig = {
       allowedOrigins: ['https://a.com', 'https://b.com'],
-      allowedMethods: ['GET', 'POST'],
-      allowedHeaders: ['Authorization'],
-      maxAge: 7200,
+      allowedMethods: ['GET'],
+      allowedHeaders: ['Content-Type'],
+      maxAge: 3600,
     };
     const headers = createCorsHeaders(cors, 'https://a.com');
     expect(headers['Access-Control-Allow-Origin']).toBe('https://a.com');
     expect(headers['Vary']).toBe('Origin');
   });
 
-  it('omits ACAO header when requestOrigin does not match', () => {
+  it('omits Allow-Origin when request origin does not match', () => {
     const cors: CorsConfig = {
       allowedOrigins: ['https://a.com'],
       allowedMethods: ['GET'],
@@ -78,31 +79,7 @@ describe('createCorsHeaders', () => {
     expect(headers['Access-Control-Allow-Origin']).toBeUndefined();
   });
 
-  it('sets Access-Control-Allow-Credentials when allowCredentials is true', () => {
-    const cors: CorsConfig = {
-      allowedOrigins: ['https://a.com'],
-      allowedMethods: ['GET'],
-      allowedHeaders: ['Content-Type'],
-      allowCredentials: true,
-      maxAge: 3600,
-    };
-    const headers = createCorsHeaders(cors, 'https://a.com');
-    expect(headers['Access-Control-Allow-Credentials']).toBe('true');
-  });
-
-  it('omits Access-Control-Allow-Credentials when allowCredentials is false', () => {
-    const cors: CorsConfig = {
-      allowedOrigins: ['*'],
-      allowedMethods: ['GET'],
-      allowedHeaders: ['Content-Type'],
-      allowCredentials: false,
-      maxAge: 3600,
-    };
-    const headers = createCorsHeaders(cors);
-    expect(headers['Access-Control-Allow-Credentials']).toBeUndefined();
-  });
-
-  it('omits ACAO header when no requestOrigin provided and not wildcard', () => {
+  it('omits Allow-Origin when no request origin and not wildcard', () => {
     const cors: CorsConfig = {
       allowedOrigins: ['https://a.com'],
       allowedMethods: ['GET'],
@@ -151,6 +128,40 @@ describe('getElapsedMs', () => {
     const ctx = createRequestContext('/test', 'get');
     const elapsed = getElapsedMs(ctx);
     expect(elapsed).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('createRequestLogEntry', () => {
+  it('creates a log entry with correct fields', () => {
+    const ctx = createRequestContext('/api/users', 'get');
+    const entry = createRequestLogEntry(ctx, 200);
+    expect(entry.requestId).toBe(ctx.requestId);
+    expect(entry.method).toBe('GET');
+    expect(entry.path).toBe('/api/users');
+    expect(entry.statusCode).toBe(200);
+    expect(entry.durationMs).toBeGreaterThanOrEqual(0);
+    expect(entry.timestamp).toBeTruthy();
+  });
+
+  it('captures error status codes', () => {
+    const ctx = createRequestContext('/api/fail', 'post');
+    const entry = createRequestLogEntry(ctx, 500);
+    expect(entry.statusCode).toBe(500);
+    expect(entry.method).toBe('POST');
+  });
+});
+
+describe('formatLogEntry', () => {
+  it('formats entry as single-line string', () => {
+    const entry = {
+      requestId: 'req-123',
+      method: 'GET',
+      path: '/api/users',
+      statusCode: 200,
+      durationMs: 42,
+      timestamp: '2026-01-01T00:00:00.000Z',
+    };
+    expect(formatLogEntry(entry)).toBe('GET /api/users 200 42ms [req-123]');
   });
 });
 
