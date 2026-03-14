@@ -14,9 +14,9 @@
     "noFallthroughCasesInSwitch": true,
     "exactOptionalPropertyTypes": true,
     "noImplicitOverride": true,
-    "noImplicitReturns": true,
     "noPropertyAccessFromIndexSignature": true,
-    "verbatimModuleSyntax": false
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
   },
   "include": ["*.ts", "src/**/*.ts"],
   "exclude": ["node_modules", "dist"]

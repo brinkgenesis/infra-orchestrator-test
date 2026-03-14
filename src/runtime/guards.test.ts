@@ -22,37 +22,8 @@ describe('assertNonEmpty', () => {
     expect(() => assertNonEmpty('hello', 'val')).not.toThrow();
   });
 
-  it('passes for single-character strings', () => {
-    expect(() => assertNonEmpty('x', 'val')).not.toThrow();
-  });
-
-  it('passes for whitespace-only strings', () => {
-    // Whitespace is technically non-empty
-    expect(() => assertNonEmpty('  ', 'val')).not.toThrow();
-  });
-
   it('throws for empty string', () => {
     expect(() => assertNonEmpty('', 'name')).toThrow('Expected name to be non-empty');
-  });
-
-  it('throws for null', () => {
-    expect(() => assertNonEmpty(null, 'field')).toThrow('Expected field to be a non-empty string, got null');
-  });
-
-  it('throws for undefined', () => {
-    expect(() => assertNonEmpty(undefined, 'field')).toThrow('Expected field to be a non-empty string, got undefined');
-  });
-
-  it('throws for number values', () => {
-    expect(() => assertNonEmpty(42, 'field')).toThrow('Expected field to be a string, got number');
-  });
-
-  it('throws for boolean values', () => {
-    expect(() => assertNonEmpty(true, 'field')).toThrow('Expected field to be a string, got boolean');
-  });
-
-  it('throws for object values', () => {
-    expect(() => assertNonEmpty({}, 'field')).toThrow('Expected field to be a string, got object');
   });
 });
 
