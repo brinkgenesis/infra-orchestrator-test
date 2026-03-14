@@ -1,38 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import {
-  getDevServerUrl,
-  getBuildOutDir,
-  isSourcemapEnabled,
-  isHmrEnabled,
-  getDevServerConfig,
-  getBuildConfig,
-  validateFrontendConfig,
-  resolveOutPath,
-  formatDevBanner,
-  getConfigSnapshot,
-  frontendConfig,
-  createDevProxyConfig,
-  createConfigFromEnv,
-  mergeConfigs,
-  getAssetPath,
-  getPublicUrl,
-  validateDevProxyConfig,
-  isDevMode,
-  buildAssetManifest,
-  formatBuildSummary,
-  createFrontendConfig,
-  shouldOpenBrowser,
-  resolveFrontendConfig,
-  getProxyEntries,
-  getBuildTarget,
-  hasSourcemaps,
-  isMinifyEnabled,
-  getDevProxyEntries,
-  resolveAssetUrl,
-  diffConfigs,
-  createDevEnvironment,
-  createBuildEnvironment,
-} from './index';
+import { getDevServerUrl, getBuildOutDir, isSourcemapEnabled, isHmrEnabled, createFrontendConfig, getPublicUrl, getAssetPublicPath, resolveAssetUrl, isDevMode, isMinifyEnabled, getBuildTarget, getPublicDir, getAssetExtensions, getProxyConfig, shouldOpenBrowser, getDevProxyPaths, buildViteConfig, createPreviewConfig, frontendConfig } from './index';
+import type { FrontendConfig } from './index';
+
+function makeConfig(overrides: {
+  dev?: Partial<FrontendConfig['dev']>;
+  build?: Partial<FrontendConfig['build']>;
+  assets?: Partial<FrontendConfig['assets']>;
+} = {}): FrontendConfig {
+  return {
+    dev: { port: 3000, hmr: true, proxy: {}, open: false, ...overrides.dev },
+    build: { outDir: 'dist', sourcemap: true, minify: false, target: 'es2022', ...overrides.build },
+    assets: { publicDir: 'public', extensions: [], ...overrides.assets },
+  };
+}
 
 describe('frontend config', () => {
   it('exports a valid config object', () => {
@@ -48,8 +28,7 @@ describe('frontend config', () => {
   });
 
   it('getDevServerUrl respects custom config', () => {
-    const custom = createFrontendConfig({ dev: { port: 8080, hmr: false } });
-    expect(getDevServerUrl(custom)).toBe('http://localhost:8080');
+    expect(getDevServerUrl(makeConfig({ dev: { port: 8080, hmr: false } }))).toBe('http://localhost:8080');
   });
 
   it('getBuildOutDir returns correct output directory', () => {
@@ -57,8 +36,7 @@ describe('frontend config', () => {
   });
 
   it('getBuildOutDir respects custom config', () => {
-    const custom = createFrontendConfig({ build: { outDir: 'build' } });
-    expect(getBuildOutDir(custom)).toBe('build');
+    expect(getBuildOutDir(makeConfig({ build: { outDir: 'build' } }))).toBe('build');
   });
 
   it('isSourcemapEnabled returns correct default', () => {
@@ -66,8 +44,7 @@ describe('frontend config', () => {
   });
 
   it('isSourcemapEnabled respects custom config', () => {
-    const custom = createFrontendConfig({ build: { sourcemap: false } });
-    expect(isSourcemapEnabled(custom)).toBe(false);
+    expect(isSourcemapEnabled(makeConfig({ build: { sourcemap: false } }))).toBe(false);
   });
 
   it('isHmrEnabled returns correct default', () => {
@@ -75,8 +52,7 @@ describe('frontend config', () => {
   });
 
   it('isHmrEnabled respects custom config', () => {
-    const custom = createFrontendConfig({ dev: { hmr: false } });
-    expect(isHmrEnabled(custom)).toBe(false);
+    expect(isHmrEnabled(makeConfig({ dev: { hmr: false } }))).toBe(false);
   });
 
   it('createFrontendConfig returns defaults when no overrides', () => {
@@ -95,403 +71,208 @@ describe('frontend config', () => {
     expect(cfg.build.sourcemap).toBe(false);
   });
 
-  it('getDevServerConfig returns summary object with defaults', () => {
-    const result = getDevServerConfig();
-    expect(result.url).toBe('http://localhost:3000');
-    expect(result.port).toBe(3000);
-    expect(result.hmr).toBe(true);
+  it('getPublicUrl returns base URL with default path', () => {
+    expect(getPublicUrl()).toBe('http://localhost:3000/');
   });
 
-  it('getDevServerConfig respects custom config', () => {
-    const custom = createFrontendConfig({ dev: { port: 9000, hmr: false } });
-    const result = getDevServerConfig(custom);
-    expect(result.url).toBe('http://localhost:9000');
-    expect(result.port).toBe(9000);
-    expect(result.hmr).toBe(false);
+  it('getPublicUrl appends path correctly', () => {
+    expect(getPublicUrl('/assets/main.js')).toBe('http://localhost:3000/assets/main.js');
   });
 
-  it('getBuildConfig returns summary object with defaults', () => {
-    const result = getBuildConfig();
-    expect(result.outDir).toBe('dist');
-    expect(result.sourcemap).toBe(true);
-  });
-
-  it('getBuildConfig respects custom config', () => {
-    const custom = createFrontendConfig({ build: { outDir: 'output', sourcemap: false } });
-    const result = getBuildConfig(custom);
-    expect(result.outDir).toBe('output');
-    expect(result.sourcemap).toBe(false);
-  });
-
-  it('validateFrontendConfig returns no errors for valid config', () => {
-    expect(validateFrontendConfig(frontendConfig)).toEqual([]);
-  });
-
-  it('validateFrontendConfig catches invalid port', () => {
-    const bad = createFrontendConfig({ dev: { port: 0 } });
-    const errors = validateFrontendConfig(bad);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain('Invalid port');
-  });
-
-  it('validateFrontendConfig catches empty outDir', () => {
-    const bad = createFrontendConfig({ build: { outDir: '' } });
-    const errors = validateFrontendConfig(bad);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain('output directory');
-  });
-
-  it('validateFrontendConfig catches multiple errors', () => {
-    const bad = createFrontendConfig({ dev: { port: 99999 }, build: { outDir: '  ' } });
-    const errors = validateFrontendConfig(bad);
-    expect(errors).toHaveLength(2);
-  });
-
-  it('validateFrontendConfig accepts boundary ports 1 and 65535', () => {
-    const low = createFrontendConfig({ dev: { port: 1 } });
-    const high = createFrontendConfig({ dev: { port: 65535 } });
-    expect(validateFrontendConfig(low)).toEqual([]);
-    expect(validateFrontendConfig(high)).toEqual([]);
-  });
-
-  it('validateFrontendConfig rejects negative port', () => {
-    const bad = createFrontendConfig({ dev: { port: -1 } });
-    const errors = validateFrontendConfig(bad);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain('Invalid port');
-  });
-
-  it('resolveOutPath joins outDir and filePath', () => {
-    expect(resolveOutPath('main.js')).toBe('dist/main.js');
-  });
-
-  it('resolveOutPath strips leading slashes from filePath', () => {
-    expect(resolveOutPath('/assets/style.css')).toBe('dist/assets/style.css');
-  });
-
-  it('resolveOutPath strips trailing slashes from outDir', () => {
-    const cfg = createFrontendConfig({ build: { outDir: 'build/' } });
-    expect(resolveOutPath('index.html', cfg)).toBe('build/index.html');
-  });
-
-  it('formatDevBanner includes port and HMR status', () => {
-    expect(formatDevBanner()).toBe('Dev server: http://localhost:3000 | HMR: enabled');
-  });
-
-  it('formatDevBanner shows disabled when HMR is off', () => {
-    const cfg = createFrontendConfig({ dev: { port: 4000, hmr: false } });
-    expect(formatDevBanner(cfg)).toBe('Dev server: http://localhost:4000 | HMR: disabled');
-  });
-
-  it('getConfigSnapshot returns JSON string of config', () => {
-    const snapshot = getConfigSnapshot();
-    const parsed = JSON.parse(snapshot);
-    expect(parsed.dev.port).toBe(3000);
-    expect(parsed.build.outDir).toBe('dist');
-  });
-
-  it('createDevProxyConfig returns proxy config with defaults', () => {
-    const proxy = createDevProxyConfig('http://localhost:8080');
-    expect(proxy.target).toBe('http://localhost:8080');
-    expect(proxy.changeOrigin).toBe(true);
-    expect(proxy.pathRewrite).toEqual({ '/api': '/api' });
-  });
-
-  it('createDevProxyConfig accepts custom rewrites', () => {
-    const proxy = createDevProxyConfig('http://localhost:8080', { '/api': '/v2/api' });
-    expect(proxy.pathRewrite).toEqual({ '/api': '/v2/api' });
-  });
-
-  it('createConfigFromEnv uses defaults when env is empty', () => {
-    const cfg = createConfigFromEnv({});
-    expect(cfg.dev.port).toBe(3000);
-    expect(cfg.dev.hmr).toBe(true);
-    expect(cfg.build.outDir).toBe('dist');
-    expect(cfg.build.sourcemap).toBe(true);
-  });
-
-  it('createConfigFromEnv reads DEV_PORT from env', () => {
-    const cfg = createConfigFromEnv({ DEV_PORT: '4000' });
-    expect(cfg.dev.port).toBe(4000);
-  });
-
-  it('createConfigFromEnv falls back on invalid DEV_PORT', () => {
-    const cfg = createConfigFromEnv({ DEV_PORT: 'abc' });
-    expect(cfg.dev.port).toBe(3000);
-  });
-
-  it('createConfigFromEnv reads HMR=false', () => {
-    const cfg = createConfigFromEnv({ HMR: 'false' });
-    expect(cfg.dev.hmr).toBe(false);
-  });
-
-  it('createConfigFromEnv reads OUT_DIR and SOURCEMAP', () => {
-    const cfg = createConfigFromEnv({ OUT_DIR: 'build', SOURCEMAP: 'false' });
-    expect(cfg.build.outDir).toBe('build');
-    expect(cfg.build.sourcemap).toBe(false);
-  });
-
-  it('mergeConfigs merges two configs', () => {
-    const base = createFrontendConfig();
-    const result = mergeConfigs(base, { dev: { port: 5000 } });
-    expect(result.dev.port).toBe(5000);
-    expect(result.dev.hmr).toBe(true);
-    expect(result.build.outDir).toBe('dist');
-  });
-
-  it('getAssetPath inserts hash before extension', () => {
-    expect(getAssetPath('main.js', 'abc123')).toBe('dist/main.abc123.js');
-  });
-
-  it('getAssetPath handles nested paths', () => {
-    expect(getAssetPath('/assets/style.css', 'def456')).toBe('dist/assets/style.def456.css');
-  });
-
-  it('getAssetPath handles files without extension', () => {
-    expect(getAssetPath('LICENSE', 'aaa')).toBe('dist/LICENSE.aaa');
-  });
-
-  it('validateFrontendConfig rejects NaN port', () => {
-    const bad = createFrontendConfig({ dev: { port: NaN } });
-    const errors = validateFrontendConfig(bad);
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain('Invalid port');
-  });
-
-  it('getPublicUrl returns base path joined with outDir', () => {
-    expect(getPublicUrl('/static')).toBe('/static/dist');
-  });
-
-  it('getPublicUrl strips trailing slashes from base', () => {
-    expect(getPublicUrl('/assets/')).toBe('/assets/dist');
+  it('getPublicUrl normalizes path without leading slash', () => {
+    expect(getPublicUrl('api/data')).toBe('http://localhost:3000/api/data');
   });
 
   it('getPublicUrl respects custom config', () => {
-    const cfg = createFrontendConfig({ build: { outDir: 'build' } });
-    expect(getPublicUrl('/cdn', cfg)).toBe('/cdn/build');
+    expect(getPublicUrl('/app', makeConfig({ dev: { port: 9000 } }))).toBe('http://localhost:9000/app');
   });
 
-  it('validateDevProxyConfig returns no errors for valid config', () => {
-    const proxy = createDevProxyConfig('http://localhost:8080');
-    expect(validateDevProxyConfig(proxy)).toEqual([]);
+  it('getAssetPublicPath returns path based on outDir', () => {
+    expect(getAssetPublicPath()).toBe('/dist/');
   });
 
-  it('validateDevProxyConfig catches empty target', () => {
-    const errors = validateDevProxyConfig({ target: '', pathRewrite: { '/api': '/api' }, changeOrigin: true });
-    expect(errors.length).toBeGreaterThan(0);
-    expect(errors[0]).toContain('empty');
+  it('getAssetPublicPath respects custom config', () => {
+    expect(getAssetPublicPath(makeConfig({ build: { outDir: 'build' } }))).toBe('/build/');
   });
 
-  it('validateDevProxyConfig catches invalid URL', () => {
-    const errors = validateDevProxyConfig({ target: 'not-a-url', pathRewrite: { '/api': '/api' }, changeOrigin: true });
-    expect(errors.some(e => e.includes('Invalid proxy target'))).toBe(true);
+  it('resolveAssetUrl joins base path with asset name', () => {
+    expect(resolveAssetUrl('main.js')).toBe('/dist/main.js');
   });
 
-  it('validateDevProxyConfig catches empty pathRewrite', () => {
-    const errors = validateDevProxyConfig({ target: 'http://localhost:8080', pathRewrite: {}, changeOrigin: true });
-    expect(errors.some(e => e.includes('path rewrite'))).toBe(true);
+  it('resolveAssetUrl strips leading slashes from asset name', () => {
+    expect(resolveAssetUrl('/images/logo.png')).toBe('/dist/images/logo.png');
   });
 
-  it('isDevMode returns true by default', () => {
+  it('resolveAssetUrl respects custom config', () => {
+    expect(resolveAssetUrl('style.css', makeConfig({ build: { outDir: 'public' } }))).toBe('/public/style.css');
+  });
+
+  it('isDevMode returns true when hmr enabled and port > 0', () => {
     expect(isDevMode()).toBe(true);
-    expect(isDevMode({})).toBe(true);
   });
 
-  it('isDevMode returns false in production', () => {
-    expect(isDevMode({ NODE_ENV: 'production' })).toBe(false);
+  it('isDevMode returns false when hmr disabled', () => {
+    expect(isDevMode(makeConfig({ dev: { hmr: false } }))).toBe(false);
   });
 
-  it('isDevMode returns true for non-production', () => {
-    expect(isDevMode({ NODE_ENV: 'development' })).toBe(true);
-    expect(isDevMode({ NODE_ENV: 'test' })).toBe(true);
+  it('isMinifyEnabled returns true from default config', () => {
+    expect(isMinifyEnabled()).toBe(true);
   });
 
-  it('buildAssetManifest creates manifest from entries', () => {
-    const manifest = buildAssetManifest([
-      { src: 'main.js', hash: 'abc', isEntry: true },
-      { src: 'style.css', hash: 'def' },
-    ]);
-    expect(manifest['main.js']).toEqual({ src: 'main.js', file: 'dist/main.abc.js', isEntry: true });
-    expect(manifest['style.css']).toEqual({ src: 'style.css', file: 'dist/style.def.css' });
+  it('isMinifyEnabled returns false when not enabled', () => {
+    expect(isMinifyEnabled(makeConfig({ build: { minify: false } }))).toBe(false);
   });
 
-  it('formatBuildSummary returns human-readable summary', () => {
-    const manifest = buildAssetManifest([
-      { src: 'main.js', hash: 'abc', isEntry: true },
-      { src: 'style.css', hash: 'def' },
-    ]);
-    const summary = formatBuildSummary(manifest);
-    expect(summary).toContain('2 asset(s)');
-    expect(summary).toContain('1 entry point(s)');
-    expect(summary).toContain('sourcemaps on');
-    expect(summary).toContain('dist');
+  it('getBuildTarget returns default config target', () => {
+    expect(getBuildTarget()).toBe('es2022');
   });
 
-  it('buildAssetManifest returns empty manifest for no entries', () => {
-    const manifest = buildAssetManifest([]);
-    expect(Object.keys(manifest)).toHaveLength(0);
+  it('getBuildTarget returns custom target', () => {
+    expect(getBuildTarget(makeConfig({ build: { target: 'esnext' } }))).toBe('esnext');
   });
 
-  it('buildAssetManifest respects custom config outDir', () => {
-    const cfg = createFrontendConfig({ build: { outDir: 'build' } });
-    const manifest = buildAssetManifest([{ src: 'app.js', hash: 'xyz', isEntry: true }], cfg);
-    expect(manifest['app.js']!.file).toBe('build/app.xyz.js');
+  it('getPublicDir returns public from default config', () => {
+    expect(getPublicDir()).toBe('public');
   });
 
-  it('formatBuildSummary shows sourcemaps off when disabled', () => {
-    const cfg = createFrontendConfig({ build: { outDir: 'output', sourcemap: false } });
-    const manifest = buildAssetManifest([{ src: 'a.js', hash: 'x' }], cfg);
-    const summary = formatBuildSummary(manifest, cfg);
-    expect(summary).toContain('sourcemaps off');
-    expect(summary).toContain('-> output');
+  it('getPublicDir returns custom publicDir', () => {
+    expect(getPublicDir(makeConfig({ assets: { publicDir: 'static' } }))).toBe('static');
   });
 
-  it('formatBuildSummary handles zero entries', () => {
-    const manifest = buildAssetManifest([]);
-    const summary = formatBuildSummary(manifest);
-    expect(summary).toContain('0 asset(s)');
-    expect(summary).toContain('0 entry point(s)');
+  it('getAssetExtensions returns configured extensions', () => {
+    const exts = getAssetExtensions();
+    expect(exts).toContain('png');
+    expect(exts).toContain('svg');
+  });
+
+  it('getAssetExtensions returns custom extensions', () => {
+    expect(getAssetExtensions(makeConfig({ assets: { extensions: ['gif'] } }))).toEqual(['gif']);
+  });
+
+  it('getProxyConfig returns proxy map', () => {
+    const proxy = getProxyConfig();
+    expect(proxy['/api']).toBeDefined();
+    expect(proxy['/api']?.target).toBe('http://localhost:4000');
+  });
+
+  it('getProxyConfig returns empty object when no proxy', () => {
+    expect(getProxyConfig(makeConfig())).toEqual({});
   });
 
   it('shouldOpenBrowser returns false by default', () => {
     expect(shouldOpenBrowser()).toBe(false);
   });
 
-  it('shouldOpenBrowser returns true when open is enabled', () => {
-    const cfg = createFrontendConfig({ dev: { open: true } });
-    expect(shouldOpenBrowser(cfg)).toBe(true);
+  it('getDevProxyPaths returns proxy path keys from default config', () => {
+    const paths = getDevProxyPaths();
+    expect(paths).toContain('/api');
   });
 
-  it('isMinifyEnabled returns true by default', () => {
-    expect(isMinifyEnabled()).toBe(true);
+  it('getDevProxyPaths returns empty array when no proxy configured', () => {
+    expect(getDevProxyPaths(makeConfig())).toEqual([]);
   });
 
-  it('isMinifyEnabled respects custom config', () => {
-    const cfg = createFrontendConfig({ build: { minify: false } });
-    expect(isMinifyEnabled(cfg)).toBe(false);
+  describe('buildViteConfig', () => {
+    it('generates valid vite config from defaults', () => {
+      const vite = buildViteConfig();
+      expect(vite['root']).toBe('.');
+      expect(vite['base']).toBe('/');
+      expect(vite['mode']).toBe('development');
+      expect((vite['server'] as Record<string, unknown>)['port']).toBe(3000);
+      expect((vite['build'] as Record<string, unknown>)['outDir']).toBe('dist');
+      expect(vite['publicDir']).toBe('public');
+    });
+
+    it('disables minify in development mode', () => {
+      const vite = buildViteConfig();
+      expect((vite['build'] as Record<string, unknown>)['minify']).toBe(false);
+    });
+
+    it('enables minify in production mode', () => {
+      const vite = buildViteConfig(undefined, { mode: 'production' });
+      expect((vite['build'] as Record<string, unknown>)['minify']).toBe(true);
+    });
+
+    it('respects custom options', () => {
+      const vite = buildViteConfig(undefined, { root: './app', base: '/app/', mode: 'production' });
+      expect(vite['root']).toBe('./app');
+      expect(vite['base']).toBe('/app/');
+      expect(vite['mode']).toBe('production');
+    });
+
+    it('includes proxy config in server section', () => {
+      const vite = buildViteConfig();
+      const server = vite['server'] as Record<string, unknown>;
+      const proxy = server['proxy'] as Record<string, unknown>;
+      expect(proxy['/api']).toBeDefined();
+    });
+
+    it('forwards proxy rewrite function when present', () => {
+      const rewrite = (p: string) => p.replace(/^\/api/, '');
+      const cfg = createFrontendConfig({
+        dev: { proxy: { '/api': { target: 'http://localhost:4000', rewrite } } },
+      });
+      const vite = buildViteConfig(cfg);
+      const server = vite['server'] as Record<string, unknown>;
+      const proxy = server['proxy'] as Record<string, Record<string, unknown>>;
+      expect(proxy['/api']!['rewrite']).toBe(rewrite);
+    });
+
+    it('omits rewrite key when not provided', () => {
+      const cfg = createFrontendConfig({
+        dev: { proxy: { '/api': { target: 'http://localhost:4000' } } },
+      });
+      const vite = buildViteConfig(cfg);
+      const server = vite['server'] as Record<string, unknown>;
+      const proxy = server['proxy'] as Record<string, Record<string, unknown>>;
+      expect(proxy['/api']!['rewrite']).toBeUndefined();
+    });
   });
 
-  it('getDevProxyEntries returns empty array when no proxies', () => {
-    expect(getDevProxyEntries()).toEqual([]);
+  it('createFrontendConfig merges assets overrides', () => {
+    const cfg = createFrontendConfig({ assets: { publicDir: 'static' } });
+    expect(cfg.assets.publicDir).toBe('static');
   });
 
-  it('getDevProxyEntries returns structured proxy entries', () => {
-    const cfg = createFrontendConfig({ dev: { proxy: { '/api': 'http://localhost:8080' } } });
-    const entries = getDevProxyEntries(cfg);
-    expect(entries).toEqual([{ from: '/api', to: 'http://localhost:8080' }]);
-  });
+  describe('createPreviewConfig', () => {
+    it('generates preview config with defaults', () => {
+      const preview = createPreviewConfig();
+      const previewSection = preview['preview'] as Record<string, unknown>;
+      expect(previewSection['host']).toBe('localhost');
+      expect(previewSection['port']).toBe(3001);
+      expect(previewSection['strictPort']).toBe(false);
+    });
 
-  it('resolveAssetUrl combines base path with asset path', () => {
-    expect(resolveAssetUrl('/cdn', 'main.js', 'abc123')).toBe('/cdn/dist/main.abc123.js');
-  });
+    it('includes build settings from config', () => {
+      const preview = createPreviewConfig();
+      const build = preview['build'] as Record<string, unknown>;
+      expect(build['outDir']).toBe('dist');
+      expect(build['sourcemap']).toBe(true);
+      expect(build['minify']).toBe(true);
+      expect(build['target']).toBe('es2022');
+    });
 
-  it('resolveAssetUrl strips trailing slashes from base', () => {
-    expect(resolveAssetUrl('/static/', 'style.css', 'def')).toBe('/static/dist/style.def.css');
-  });
+    it('respects custom options', () => {
+      const preview = createPreviewConfig(undefined, { host: '0.0.0.0', port: 5000, strictPort: true });
+      const previewSection = preview['preview'] as Record<string, unknown>;
+      expect(previewSection['host']).toBe('0.0.0.0');
+      expect(previewSection['port']).toBe(5000);
+      expect(previewSection['strictPort']).toBe(true);
+    });
 
-  it('diffConfigs returns empty array for identical configs', () => {
-    const cfg = createFrontendConfig();
-    expect(diffConfigs(cfg, cfg)).toEqual([]);
-  });
+    it('uses custom config for build settings', () => {
+      const cfg = makeConfig({ build: { outDir: 'build', minify: false } });
+      const preview = createPreviewConfig(cfg);
+      const build = preview['build'] as Record<string, unknown>;
+      expect(build['outDir']).toBe('build');
+      expect(build['minify']).toBe(false);
+    });
 
-  it('diffConfigs detects changed fields', () => {
-    const a = createFrontendConfig();
-    const b = createFrontendConfig({ dev: { port: 8080 }, build: { sourcemap: false } });
-    const diffs = diffConfigs(a, b);
-    expect(diffs).toContain('dev.port: 3000 -> 8080');
-    expect(diffs).toContain('build.sourcemap: true -> false');
-    expect(diffs).toHaveLength(2);
-  });
-
-  it('diffConfigs detects proxy changes', () => {
-    const a = createFrontendConfig();
-    const b = createFrontendConfig({ dev: { proxy: { '/api': 'http://localhost:9000' } } });
-    const diffs = diffConfigs(a, b);
-    expect(diffs).toHaveLength(1);
-    expect(diffs[0]).toContain('dev.proxy');
-  });
-
-  it('diffConfigs ignores identical proxies', () => {
-    const a = createFrontendConfig({ dev: { proxy: { '/api': 'http://localhost:8080' } } });
-    const b = createFrontendConfig({ dev: { proxy: { '/api': 'http://localhost:8080' } } });
-    expect(diffConfigs(a, b)).toEqual([]);
-  });
-
-  it('resolveFrontendConfig returns default config when no overrides', () => {
-    const cfg = resolveFrontendConfig();
-    expect(cfg.dev.port).toBe(3000);
-    expect(cfg.build.outDir).toBe('dist');
-  });
-
-  it('resolveFrontendConfig applies overrides', () => {
-    const cfg = resolveFrontendConfig({ dev: { port: 7000 } });
-    expect(cfg.dev.port).toBe(7000);
-    expect(cfg.dev.hmr).toBe(true);
-  });
-
-  it('createDevEnvironment returns complete dev descriptor', () => {
-    const env = createDevEnvironment();
-    expect(env.server.url).toBe('http://localhost:3000');
-    expect(env.server.port).toBe(3000);
-    expect(env.server.hmr).toBe(true);
-    expect(env.banner).toContain('HMR: enabled');
-    expect(env.proxy).toEqual([]);
-    expect(env.errors).toEqual([]);
-  });
-
-  it('createDevEnvironment includes proxy entries and validation errors', () => {
-    const cfg = createFrontendConfig({ dev: { port: 0, proxy: { '/api': 'http://localhost:8080' } } });
-    const env = createDevEnvironment(cfg);
-    expect(env.proxy).toEqual([{ from: '/api', to: 'http://localhost:8080' }]);
-    expect(env.errors.length).toBeGreaterThan(0);
-  });
-
-  it('createBuildEnvironment returns complete build descriptor', () => {
-    const env = createBuildEnvironment([
-      { src: 'main.js', hash: 'abc', isEntry: true },
-      { src: 'style.css', hash: 'def' },
-    ]);
-    expect(env.config.outDir).toBe('dist');
-    expect(env.config.sourcemap).toBe(true);
-    expect(env.target).toBe('ES2022');
-    expect(env.manifest['main.js']!.file).toBe('dist/main.abc.js');
-    expect(env.summary).toContain('2 asset(s)');
-  });
-
-  it('createBuildEnvironment respects custom config', () => {
-    const cfg = createFrontendConfig({ build: { outDir: 'build', sourcemap: false, target: 'ES2020' } });
-    const env = createBuildEnvironment([{ src: 'app.js', hash: 'xyz', isEntry: true }], cfg);
-    expect(env.config.outDir).toBe('build');
-    expect(env.target).toBe('ES2020');
-    expect(env.manifest['app.js']!.file).toBe('build/app.xyz.js');
-    expect(env.summary).toContain('sourcemaps off');
-  });
-
-  it('getProxyEntries returns empty array for default config', () => {
-    expect(getProxyEntries()).toEqual([]);
-  });
-
-  it('getProxyEntries returns entries from config proxy', () => {
-    const cfg = createFrontendConfig({ dev: { proxy: { '/api': 'http://localhost:8080' } } });
-    expect(getProxyEntries(cfg)).toEqual([['/api', 'http://localhost:8080']]);
-  });
-
-  it('getBuildTarget returns default target', () => {
-    expect(getBuildTarget()).toBe('ES2022');
-  });
-
-  it('getBuildTarget respects custom config', () => {
-    const cfg = createFrontendConfig({ build: { target: 'ES2020' } });
-    expect(getBuildTarget(cfg)).toBe('ES2020');
-  });
-
-  it('hasSourcemaps returns true by default', () => {
-    expect(hasSourcemaps()).toBe(true);
-  });
-
-  it('hasSourcemaps returns false when disabled', () => {
-    const cfg = createFrontendConfig({ build: { sourcemap: false } });
-    expect(hasSourcemaps(cfg)).toBe(false);
+    it('defaults preview port to dev port + 1', () => {
+      const cfg = makeConfig({ dev: { port: 8080 } });
+      const preview = createPreviewConfig(cfg);
+      const previewSection = preview['preview'] as Record<string, unknown>;
+      expect(previewSection['port']).toBe(8081);
+    });
   });
 });
-
