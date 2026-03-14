@@ -27,6 +27,10 @@ export interface Response {
 
 export type Middleware = (req: Request, res: Response, next: () => void) => void;
 
+/**
+ * Lightweight application server that manages routes, middleware, and lifecycle.
+ * Provides health checking, route registration, and middleware chaining.
+ */
 export class Server {
   private config: AppConfig;
   private startTime: number | null = null;
@@ -49,6 +53,9 @@ export class Server {
   }
 
   addRoute(route: Route): void {
+    if (this.hasRoute(route.method, route.path)) {
+      return;
+    }
     this.routes.push(route);
   }
 
