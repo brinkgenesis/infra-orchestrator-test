@@ -1132,3 +1132,82 @@ describe('ResiliencePipeline', () => {
     expect(pipeline.getCircuitBreaker()).toBeUndefined();
   });
 });
+
+describe('withHedging', () => {
+  it('returns the result of the primary attempt when it succeeds quickly', async () => {
+    const fn = vi.fn().mockResolvedValue('fast');
+    const result = await withHedging(fn, { delayMs: 100 });
+    expect(result).toBe('fast');
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('launches a hedged attempt after delayMs if primary is slow', async () => {
+    let calls = 0;
+    const fn = vi.fn().mockImplementation(() => {
+      calls++;
+      if (calls === 1) {
+        return new Promise<string>((r) => setTimeout(() => r('slow'), 200));
+      }
+      return Promise.resolve('hedged');
+    });
+    const result = await withHedging(fn, { delayMs: 10 });
+    expect(result).toBe('hedged');
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns whichever attempt resolves first', async () => {
+    const fn = vi.fn().mockImplementation(
+      () => new Promise<string>((r) => setTimeout(() => r('done'), 20)),
+    );
+    const result = await withHedging(fn, { delayMs: 5 });
+    expect(result).toBe('done');
+  });
+
+  it('rejects if all attempts fail', async () => {
+    // Primary rejects immediately before the hedged timer fires,
+    // so only 1 call is made and the promise rejects with the last error.
+    const fn = vi.fn().mockRejectedValue(new Error('all down'));
+    await expect(withHedging(fn, { delayMs: 5 })).rejects.toThrow('all down');
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('throws if maxAttempts is less than 1', async () => {
+    await expect(
+      withHedging(() => Promise.resolve('ok'), { delayMs: 10, maxAttempts: 0 }),
+    ).rejects.toThrow('maxAttempts must be at least 1');
+  });
+
+  it('runs without hedging when maxAttempts is 1', async () => {
+    const fn = vi.fn().mockResolvedValue('single');
+    const result = await withHedging(fn, { delayMs: 10, maxAttempts: 1 });
+    expect(result).toBe('single');
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('supports more than 2 hedged attempts', async () => {
+    let calls = 0;
+    const fn = vi.fn().mockImplementation(() => {
+      calls++;
+      if (calls < 3) {
+        return new Promise<string>((r) => setTimeout(() => r('slow'), 500));
+      }
+      return Promise.resolve('third');
+    });
+    const result = await withHedging(fn, { delayMs: 10, maxAttempts: 3 });
+    expect(result).toBe('third');
+    expect(fn).toHaveBeenCalledTimes(3);
+  });
+
+  it('rejects when all attempts fail including hedged', async () => {
+    // Use slow-failing fn so the hedged attempt also fires
+    let calls = 0;
+    const fn = vi.fn().mockImplementation(() => {
+      calls++;
+      return new Promise<string>((_, reject) =>
+        setTimeout(() => reject(new Error(`fail-${calls}`)), 5),
+      );
+    });
+    await expect(withHedging(fn, { delayMs: 1 })).rejects.toThrow();
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+});
