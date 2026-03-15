@@ -212,6 +212,76 @@ describe('Server', () => {
   });
 });
 
+describe('Server.dispatch', () => {
+  it('should return 404 when no matching route', () => {
+    const server = new Server();
+    const req: Request = { method: 'GET', path: '/missing', headers: {} };
+    const res = server.dispatch(req);
+    expect(res.status).toBe(404);
+    expect(res.body).toEqual({ error: 'Not Found', path: '/missing', method: 'GET' });
+  });
+
+  it('should match a registered route and return handler info', () => {
+    const server = new Server();
+    server.addRoute({ method: 'GET', path: '/api/users', handler: 'listUsers' });
+    const req: Request = { method: 'GET', path: '/api/users', headers: {} };
+    const res = server.dispatch(req);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ handler: 'listUsers', route: 'GET /api/users' });
+  });
+
+  it('should run middlewares before dispatching', () => {
+    const server = new Server();
+    server.addRoute({ method: 'POST', path: '/api/items', handler: 'createItem' });
+    server.use((req, res, next) => {
+      res.headers['x-request-id'] = 'test-id';
+      next();
+    });
+    const req: Request = { method: 'POST', path: '/api/items', headers: {} };
+    const res = server.dispatch(req);
+    expect(res.status).toBe(200);
+    expect(res.headers['x-request-id']).toBe('test-id');
+  });
+
+  it('should normalize method case when dispatching', () => {
+    const server = new Server();
+    server.addRoute({ method: 'DELETE', path: '/api/items/1', handler: 'deleteItem' });
+    const req: Request = { method: 'delete', path: '/api/items/1', headers: {} };
+    const res = server.dispatch(req);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ handler: 'deleteItem', route: 'DELETE /api/items/1' });
+  });
+
+  it('should return 404 when method does not match', () => {
+    const server = new Server();
+    server.addRoute({ method: 'GET', path: '/api/users', handler: 'listUsers' });
+    const req: Request = { method: 'POST', path: '/api/users', headers: {} };
+    const res = server.dispatch(req);
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('Server.groupRoutesByMethod', () => {
+  it('should return empty object when no routes', () => {
+    const server = new Server();
+    expect(server.groupRoutesByMethod()).toEqual({});
+  });
+
+  it('should group routes by HTTP method', () => {
+    const server = new Server();
+    server.addRoute({ method: 'GET', path: '/api/users', handler: 'listUsers' });
+    server.addRoute({ method: 'GET', path: '/api/items', handler: 'listItems' });
+    server.addRoute({ method: 'POST', path: '/api/users', handler: 'createUser' });
+    server.addRoute({ method: 'DELETE', path: '/api/users/1', handler: 'deleteUser' });
+
+    const groups = server.groupRoutesByMethod();
+    expect(Object.keys(groups)).toHaveLength(3);
+    expect(groups['GET']).toHaveLength(2);
+    expect(groups['POST']).toHaveLength(1);
+    expect(groups['DELETE']).toHaveLength(1);
+  });
+});
+
 describe('Middleware', () => {
   it('should register and retrieve middlewares', () => {
     const server = new Server();

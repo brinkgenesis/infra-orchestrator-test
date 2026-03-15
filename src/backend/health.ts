@@ -31,6 +31,21 @@ export interface HealthChecker {
   list(): string[];
 }
 
+export interface DependencyHealth {
+  name: string;
+  status: 'up' | 'down';
+  latencyMs: number;
+  message?: string;
+}
+
+export interface HealthCheckResult {
+  status: HealthStatus['status'];
+  version: string;
+  uptime: number;
+  timestamp: string;
+  dependencies: DependencyHealth[];
+}
+
 const startTime = Date.now();
 
 /** Returns the current health status of the application including uptime and version info. */
@@ -48,7 +63,7 @@ export function buildBaseUrl(config: AppConfig): string {
   return `http://${config.host}:${config.port}`;
 }
 
-/** Maps a health status value to the corresponding HTTP status code. */
+/** Maps a health status string to the appropriate HTTP status code. */
 export function mapHealthStatusToHttpCode(status: HealthStatus['status']): number {
   switch (status) {
     case 'healthy':
@@ -60,8 +75,8 @@ export function mapHealthStatusToHttpCode(status: HealthStatus['status']): numbe
   }
 }
 
-/** Creates a health checker that aggregates dependency probe results into an overall health status. */
-export function createHealthChecker(): HealthChecker {
+/** Creates a health checker that manages named probes and aggregates their results. */
+export function createHealthChecker() {
   const probes = new Map<string, HealthProbe>();
 
   return {
@@ -73,51 +88,58 @@ export function createHealthChecker(): HealthChecker {
       return probes.delete(name);
     },
 
-    async check(version = '0.1.0'): Promise<DetailedHealthStatus> {
-      const dependencies: DependencyStatus[] = [];
+    list(): string[] {
+      return [...probes.keys()];
+    },
+
+    async check(version = '0.1.0'): Promise<HealthCheckResult> {
+      const dependencies: DependencyHealth[] = [];
 
       for (const [name, probe] of probes) {
         const start = Date.now();
+        let up = false;
+        let message: string | undefined;
+
         try {
-          const result = await probe();
-          dependencies.push({
-            name,
-            status: result ? 'up' : 'down',
-            latencyMs: Date.now() - start,
-          });
-        } catch (err) {
-          dependencies.push({
-            name,
-            status: 'down',
-            latencyMs: Date.now() - start,
-            message: err instanceof Error ? err.message : 'Unknown error',
-          });
+          up = await probe();
+        } catch (err: unknown) {
+          up = false;
+          message = err instanceof Error ? err.message : 'Unknown error';
         }
+
+        const latencyMs = Date.now() - start;
+        const dep: DependencyHealth = {
+          name,
+          status: up ? 'up' : 'down',
+          latencyMs,
+        };
+        if (message !== undefined) {
+          dep.message = message;
+        }
+        dependencies.push(dep);
       }
 
-      const allUp = dependencies.every((d) => d.status === 'up');
-      const allDown = dependencies.length > 0 && dependencies.every((d) => d.status === 'down');
-
       let status: HealthStatus['status'];
-      if (dependencies.length === 0 || allUp) {
+      if (dependencies.length === 0) {
         status = 'healthy';
-      } else if (allDown) {
-        status = 'unhealthy';
       } else {
-        status = 'degraded';
+        const upCount = dependencies.filter((d) => d.status === 'up').length;
+        if (upCount === dependencies.length) {
+          status = 'healthy';
+        } else if (upCount === 0) {
+          status = 'unhealthy';
+        } else {
+          status = 'degraded';
+        }
       }
 
       return {
         status,
+        version,
         uptime: Math.floor((Date.now() - startTime) / 1000),
         timestamp: new Date().toISOString(),
-        version,
         dependencies,
       };
-    },
-
-    list(): string[] {
-      return [...probes.keys()];
     },
   };
 }

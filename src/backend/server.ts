@@ -143,6 +143,35 @@ export class Server {
   listRoutePaths(): string[] {
     return this.routes.map(r => `${r.method} ${r.path}`);
   }
+
+  dispatch(req: Request): Response {
+    const res: Response = { status: 200, headers: {} };
+
+    this.runMiddlewares(req, res);
+
+    const method = req.method.toUpperCase() as Route['method'];
+    const route = this.findRoute(method, req.path);
+
+    if (!route) {
+      res.status = 404;
+      res.body = { error: 'Not Found', path: req.path, method: req.method };
+      return res;
+    }
+
+    res.body = { handler: route.handler, route: `${route.method} ${route.path}` };
+    return res;
+  }
+
+  groupRoutesByMethod(): Record<string, Route[]> {
+    const groups: Record<string, Route[]> = {};
+    for (const route of this.routes) {
+      if (!groups[route.method]) {
+        groups[route.method] = [];
+      }
+      groups[route.method]!.push(route);
+    }
+    return groups;
+  }
 }
 
 export function createServer(config?: AppConfig): Server {
