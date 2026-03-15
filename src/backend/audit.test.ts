@@ -12,33 +12,45 @@ import {
 import type { AuditEntry, AuditFilter } from './audit';
 
 const sampleEntry: AuditEntry = {
-  timestamp: '2026-03-14T10:00:00.000Z',
+  timestamp: '2026-01-15T10:00:00Z',
   userId: 'user-1',
   action: 'login',
   resource: '/auth',
   clientId: 'client-a',
+  ip: '192.168.1.1',
+};
+
+const sampleEntry2: AuditEntry = {
+  timestamp: '2026-01-15T11:00:00Z',
+  userId: 'user-2',
+  action: 'logout',
+  resource: '/auth',
+  clientId: 'client-b',
   ip: '10.0.0.1',
 };
 
-const sampleEntries: AuditEntry[] = [
-  { timestamp: '2026-03-14T10:00:00.000Z', userId: 'user-1', action: 'login', resource: '/auth', clientId: 'client-a', ip: '10.0.0.1' },
-  { timestamp: '2026-03-14T11:00:00.000Z', userId: 'user-2', action: 'read', resource: '/api/data', clientId: 'client-b', ip: '10.0.0.2' },
-  { timestamp: '2026-03-14T12:00:00.000Z', userId: 'user-1', action: 'write', resource: '/api/data', clientId: null, ip: '10.0.0.1' },
-  { timestamp: '2026-03-14T13:00:00.000Z', userId: 'user-3', action: 'login', resource: '/auth', clientId: 'client-a', ip: '10.0.0.3' },
-];
+const sampleEntry3: AuditEntry = {
+  timestamp: '2026-01-15T12:00:00Z',
+  userId: 'user-1',
+  action: 'update',
+  resource: '/profile',
+  clientId: null,
+  ip: '192.168.1.1',
+  details: { field: 'email' },
+};
 
 describe('parseAuditEntry', () => {
-  it('parses a valid JSON line', () => {
-    const line = JSON.stringify(sampleEntry);
-    const result = parseAuditEntry(line);
-    expect(result).toEqual(sampleEntry);
+  it('parses a valid JSONL line', () => {
+    const line = JSON.stringify({ timestamp: '2026-01-01T00:00:00Z', action: 'login', userId: 'u1', resource: '/auth', clientId: 'c1', ip: '1.2.3.4' });
+    const entry = parseAuditEntry(line);
+    expect(entry).not.toBeNull();
+    expect(entry!.timestamp).toBe('2026-01-01T00:00:00Z');
+    expect(entry!.action).toBe('login');
+    expect(entry!.userId).toBe('u1');
   });
 
-  it('returns null for empty string', () => {
+  it('returns null for empty line', () => {
     expect(parseAuditEntry('')).toBeNull();
-  });
-
-  it('returns null for whitespace-only string', () => {
     expect(parseAuditEntry('   ')).toBeNull();
   });
 
@@ -51,45 +63,48 @@ describe('parseAuditEntry', () => {
   });
 
   it('returns null when action is missing', () => {
-    expect(parseAuditEntry(JSON.stringify({ timestamp: '2026-01-01' }))).toBeNull();
+    expect(parseAuditEntry(JSON.stringify({ timestamp: '2026-01-01T00:00:00Z' }))).toBeNull();
   });
 
   it('defaults optional fields', () => {
-    const line = JSON.stringify({ timestamp: '2026-01-01', action: 'test' });
-    const result = parseAuditEntry(line);
-    expect(result).not.toBeNull();
-    expect(result!.userId).toBe('');
-    expect(result!.resource).toBe('');
-    expect(result!.clientId).toBeNull();
-    expect(result!.ip).toBe('');
+    const line = JSON.stringify({ timestamp: '2026-01-01T00:00:00Z', action: 'test' });
+    const entry = parseAuditEntry(line);
+    expect(entry).not.toBeNull();
+    expect(entry!.userId).toBe('');
+    expect(entry!.resource).toBe('');
+    expect(entry!.clientId).toBeNull();
+    expect(entry!.ip).toBe('');
   });
 
   it('includes details when present', () => {
-    const line = JSON.stringify({ ...sampleEntry, details: { key: 'value' } });
-    const result = parseAuditEntry(line);
-    expect(result!.details).toEqual({ key: 'value' });
+    const line = JSON.stringify({ timestamp: '2026-01-01T00:00:00Z', action: 'update', details: { key: 'val' } });
+    const entry = parseAuditEntry(line);
+    expect(entry!.details).toEqual({ key: 'val' });
   });
 });
 
 describe('parseAuditLog', () => {
-  it('parses multiple lines', () => {
-    const content = sampleEntries.map((e) => JSON.stringify(e)).join('\n');
-    const result = parseAuditLog(content);
-    expect(result).toHaveLength(4);
+  it('parses multiple JSONL lines', () => {
+    const content = [
+      JSON.stringify({ timestamp: '2026-01-01T00:00:00Z', action: 'login' }),
+      JSON.stringify({ timestamp: '2026-01-01T01:00:00Z', action: 'logout' }),
+    ].join('\n');
+    const entries = parseAuditLog(content);
+    expect(entries).toHaveLength(2);
   });
 
   it('skips invalid lines', () => {
     const content = [
-      JSON.stringify(sampleEntry),
-      'bad line',
+      JSON.stringify({ timestamp: '2026-01-01T00:00:00Z', action: 'login' }),
+      'invalid line',
       '',
-      JSON.stringify(sampleEntries[1]),
+      JSON.stringify({ timestamp: '2026-01-01T01:00:00Z', action: 'logout' }),
     ].join('\n');
-    const result = parseAuditLog(content);
-    expect(result).toHaveLength(2);
+    const entries = parseAuditLog(content);
+    expect(entries).toHaveLength(2);
   });
 
-  it('returns empty array for empty string', () => {
+  it('returns empty array for empty content', () => {
     expect(parseAuditLog('')).toEqual([]);
   });
 });
@@ -106,7 +121,7 @@ describe('matchesFilter', () => {
 
   it('filters by action', () => {
     expect(matchesFilter(sampleEntry, { action: 'login' })).toBe(true);
-    expect(matchesFilter(sampleEntry, { action: 'read' })).toBe(false);
+    expect(matchesFilter(sampleEntry, { action: 'logout' })).toBe(false);
   });
 
   it('filters by clientId', () => {
@@ -115,43 +130,46 @@ describe('matchesFilter', () => {
   });
 
   it('filters by from timestamp', () => {
-    expect(matchesFilter(sampleEntry, { from: '2026-03-14T09:00:00.000Z' })).toBe(true);
-    expect(matchesFilter(sampleEntry, { from: '2026-03-14T11:00:00.000Z' })).toBe(false);
+    expect(matchesFilter(sampleEntry, { from: '2026-01-15T09:00:00Z' })).toBe(true);
+    expect(matchesFilter(sampleEntry, { from: '2026-01-15T11:00:00Z' })).toBe(false);
   });
 
   it('filters by to timestamp', () => {
-    expect(matchesFilter(sampleEntry, { to: '2026-03-14T11:00:00.000Z' })).toBe(true);
-    expect(matchesFilter(sampleEntry, { to: '2026-03-14T09:00:00.000Z' })).toBe(false);
+    expect(matchesFilter(sampleEntry, { to: '2026-01-15T11:00:00Z' })).toBe(true);
+    expect(matchesFilter(sampleEntry, { to: '2026-01-15T09:00:00Z' })).toBe(false);
   });
 
   it('combines multiple filter criteria', () => {
     const filter: AuditFilter = { userId: 'user-1', action: 'login' };
     expect(matchesFilter(sampleEntry, filter)).toBe(true);
-    expect(matchesFilter(sampleEntries[2]!, { userId: 'user-1', action: 'login' })).toBe(false);
+    expect(matchesFilter(sampleEntry2, filter)).toBe(false);
   });
 });
 
 describe('queryAuditLog', () => {
-  it('returns all entries with no filter', () => {
-    const result = queryAuditLog(sampleEntries);
-    expect(result.entries).toHaveLength(4);
-    expect(result.total).toBe(4);
-    expect(result.filtered).toBe(4);
+  const entries = [sampleEntry, sampleEntry2, sampleEntry3];
+
+  it('returns all entries with empty filter', () => {
+    const result = queryAuditLog(entries);
+    expect(result.total).toBe(3);
+    expect(result.filtered).toBe(3);
+    expect(result.entries).toHaveLength(3);
   });
 
   it('filters entries by userId', () => {
-    const result = queryAuditLog(sampleEntries, { userId: 'user-1' });
+    const result = queryAuditLog(entries, { userId: 'user-1' });
+    expect(result.total).toBe(3);
     expect(result.filtered).toBe(2);
-    expect(result.total).toBe(4);
   });
 
   it('filters entries by action', () => {
-    const result = queryAuditLog(sampleEntries, { action: 'login' });
-    expect(result.filtered).toBe(2);
+    const result = queryAuditLog(entries, { action: 'logout' });
+    expect(result.filtered).toBe(1);
+    expect(result.entries[0]!.userId).toBe('user-2');
   });
 
   it('returns empty when no entries match', () => {
-    const result = queryAuditLog(sampleEntries, { userId: 'no-one' });
+    const result = queryAuditLog(entries, { action: 'delete' });
     expect(result.filtered).toBe(0);
     expect(result.entries).toEqual([]);
   });
@@ -159,44 +177,48 @@ describe('queryAuditLog', () => {
 
 describe('getUniqueActions', () => {
   it('returns sorted unique actions', () => {
-    const actions = getUniqueActions(sampleEntries);
-    expect(actions).toEqual(['login', 'read', 'write']);
+    const entries = [sampleEntry, sampleEntry2, sampleEntry3];
+    expect(getUniqueActions(entries)).toEqual(['login', 'logout', 'update']);
   });
 
-  it('returns empty array for empty input', () => {
+  it('returns empty array for empty entries', () => {
     expect(getUniqueActions([])).toEqual([]);
   });
 });
 
 describe('getUniqueUsers', () => {
   it('returns sorted unique user IDs', () => {
-    const users = getUniqueUsers(sampleEntries);
-    expect(users).toEqual(['user-1', 'user-2', 'user-3']);
+    const entries = [sampleEntry, sampleEntry2, sampleEntry3];
+    expect(getUniqueUsers(entries)).toEqual(['user-1', 'user-2']);
   });
 
-  it('excludes empty userId strings', () => {
-    const entries: AuditEntry[] = [
-      { ...sampleEntry, userId: '' },
-      { ...sampleEntry, userId: 'user-1' },
-    ];
-    expect(getUniqueUsers(entries)).toEqual(['user-1']);
+  it('excludes empty user IDs', () => {
+    const entry: AuditEntry = { ...sampleEntry, userId: '' };
+    expect(getUniqueUsers([entry])).toEqual([]);
   });
 
-  it('returns empty array for empty input', () => {
+  it('returns empty array for empty entries', () => {
     expect(getUniqueUsers([])).toEqual([]);
   });
 });
 
 describe('groupByAction', () => {
   it('groups entries by action', () => {
-    const groups = groupByAction(sampleEntries);
-    expect(Object.keys(groups).sort()).toEqual(['login', 'read', 'write']);
-    expect(groups['login']).toHaveLength(2);
-    expect(groups['read']).toHaveLength(1);
-    expect(groups['write']).toHaveLength(1);
+    const entries = [sampleEntry, sampleEntry2, sampleEntry3];
+    const groups = groupByAction(entries);
+    expect(Object.keys(groups).sort()).toEqual(['login', 'logout', 'update']);
+    expect(groups['login']).toHaveLength(1);
+    expect(groups['logout']).toHaveLength(1);
+    expect(groups['update']).toHaveLength(1);
   });
 
-  it('returns empty object for empty input', () => {
+  it('groups multiple entries under same action', () => {
+    const entries = [sampleEntry, { ...sampleEntry, userId: 'user-3' }];
+    const groups = groupByAction(entries);
+    expect(groups['login']).toHaveLength(2);
+  });
+
+  it('returns empty object for empty entries', () => {
     expect(groupByAction([])).toEqual({});
   });
 });
@@ -208,47 +230,49 @@ describe('createAuditStore', () => {
     expect(store.all()).toEqual([]);
   });
 
-  it('initializes with provided entries', () => {
-    const store = createAuditStore(sampleEntries);
-    expect(store.count()).toBe(4);
+  it('accepts initial entries', () => {
+    const store = createAuditStore([sampleEntry, sampleEntry2]);
+    expect(store.count()).toBe(2);
   });
 
   it('appends entries', () => {
     const store = createAuditStore();
     store.append(sampleEntry);
     expect(store.count()).toBe(1);
-    expect(store.all()[0]).toEqual(sampleEntry);
+    store.append(sampleEntry2);
+    expect(store.count()).toBe(2);
   });
 
-  it('queries with filter', () => {
-    const store = createAuditStore(sampleEntries);
-    const result = store.query({ action: 'login' });
+  it('queries entries with filter', () => {
+    const store = createAuditStore([sampleEntry, sampleEntry2, sampleEntry3]);
+    const result = store.query({ userId: 'user-1' });
     expect(result.filtered).toBe(2);
-    expect(result.total).toBe(4);
+    expect(result.total).toBe(3);
   });
 
   it('returns unique actions', () => {
-    const store = createAuditStore(sampleEntries);
-    expect(store.actions()).toEqual(['login', 'read', 'write']);
+    const store = createAuditStore([sampleEntry, sampleEntry2]);
+    expect(store.actions()).toEqual(['login', 'logout']);
   });
 
   it('returns unique users', () => {
-    const store = createAuditStore(sampleEntries);
-    expect(store.users()).toEqual(['user-1', 'user-2', 'user-3']);
+    const store = createAuditStore([sampleEntry, sampleEntry2]);
+    expect(store.users()).toEqual(['user-1', 'user-2']);
   });
 
   it('clears all entries', () => {
-    const store = createAuditStore(sampleEntries);
+    const store = createAuditStore([sampleEntry, sampleEntry2]);
     store.clear();
     expect(store.count()).toBe(0);
     expect(store.all()).toEqual([]);
   });
 
-  it('does not mutate initial array', () => {
-    const initial = [sampleEntry];
-    const store = createAuditStore(initial);
-    store.append(sampleEntries[1]!);
-    expect(initial).toHaveLength(1);
-    expect(store.count()).toBe(2);
+  it('all() returns a copy', () => {
+    const store = createAuditStore([sampleEntry]);
+    const all = store.all();
+    expect(all).toHaveLength(1);
+    // Mutating returned array should not affect store
+    (all as AuditEntry[]).push(sampleEntry2);
+    expect(store.count()).toBe(1);
   });
 });

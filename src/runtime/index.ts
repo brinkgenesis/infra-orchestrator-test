@@ -828,6 +828,89 @@ export class FallbackChain<T> {
   }
 }
 
+export type HealthListener = (status: AggregateHealthStatus) => void;
+
+export interface HealthMonitorOptions {
+  intervalMs: number;
+  checks: Array<{ service: string; probe: () => Promise<void> }>;
+}
+
+/**
+ * Periodically polls a set of health probes and tracks the latest aggregate
+ * status.  Listeners are notified after each poll cycle.
+ */
+export class HealthMonitor {
+  private readonly intervalMs: number;
+  private readonly checks: Array<{ service: string; probe: () => Promise<void> }>;
+  private readonly listeners: HealthListener[] = [];
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private lastStatus: AggregateHealthStatus | null = null;
+
+  constructor(opts: HealthMonitorOptions) {
+    if (opts.intervalMs <= 0 || !Number.isFinite(opts.intervalMs)) {
+      throw new Error('intervalMs must be a positive finite number');
+    }
+    if (opts.checks.length === 0) {
+      throw new Error('At least one health check is required');
+    }
+    this.intervalMs = opts.intervalMs;
+    this.checks = opts.checks;
+  }
+
+  /** Registers a listener that will be called after each poll cycle. */
+  onStatus(listener: HealthListener): void {
+    this.listeners.push(listener);
+  }
+
+  /** Removes a previously registered listener. */
+  offStatus(listener: HealthListener): void {
+    const idx = this.listeners.indexOf(listener);
+    if (idx !== -1) {
+      this.listeners.splice(idx, 1);
+    }
+  }
+
+  /** Returns the most recent aggregate health status, or null if no poll has completed yet. */
+  getLastStatus(): AggregateHealthStatus | null {
+    return this.lastStatus;
+  }
+
+  /** Starts periodic polling. Performs an initial poll immediately. */
+  start(): void {
+    if (this.timer !== null) {
+      return; // already running
+    }
+    // Fire the first poll immediately (don't await — it runs in the background)
+    void this.poll();
+    this.timer = setInterval(() => {
+      void this.poll();
+    }, this.intervalMs);
+  }
+
+  /** Stops periodic polling. */
+  stop(): void {
+    if (this.timer !== null) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+  }
+
+  /** Returns true if the monitor is actively polling. */
+  isRunning(): boolean {
+    return this.timer !== null;
+  }
+
+  /** Runs a single poll cycle and notifies listeners. */
+  async poll(): Promise<AggregateHealthStatus> {
+    const status = await aggregateHealth(this.checks);
+    this.lastStatus = status;
+    for (const listener of this.listeners) {
+      listener(status);
+    }
+    return status;
+  }
+}
+
 export interface HedgingOptions {
   delayMs: number;
   maxAttempts?: number;

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { getHealthStatus, buildBaseUrl, mapHealthStatusToHttpCode, createHealthChecker } from './health';
-import type { HealthStatus, DetailedHealthStatus } from './health';
+import type { HealthStatus } from './health';
 import type { AppConfig } from '../index';
 
 describe('getHealthStatus', () => {
@@ -86,7 +86,7 @@ describe('createHealthChecker', () => {
     expect(checker.list()).toEqual(['db', 'cache']);
   });
 
-  it('should unregister a probe', () => {
+  it('unregisters a probe', () => {
     const checker = createHealthChecker();
     checker.register('db', () => true);
     expect(checker.unregister('db')).toBe(true);
@@ -165,7 +165,7 @@ describe('createHealthChecker', () => {
 
   it('should include uptime and timestamp in detailed result', async () => {
     const checker = createHealthChecker();
-    const result: DetailedHealthStatus = await checker.check();
+    const result = await checker.check();
     expect(result.uptime).toBeGreaterThanOrEqual(0);
     expect(new Date(result.timestamp).toISOString()).toBe(result.timestamp);
   });
