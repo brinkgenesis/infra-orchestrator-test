@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   computeBackoff,
   withRetry,
@@ -30,6 +30,7 @@ import {
   DependencyChecker,
   LoadShedder,
   LoadShedError,
+  HealthMonitor,
 } from './index';
 import type { CircuitState } from './index';
 
@@ -2265,5 +2266,147 @@ describe('LoadShedError', () => {
     const err = new LoadShedError('latency');
     expect(err.reason).toBe('latency');
     expect(err.message).toContain('latency');
+  });
+});
+
+describe('HealthMonitor', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('throws if intervalMs is not a positive finite number', () => {
+    expect(() => new HealthMonitor({ intervalMs: 0, checks: [{ service: 's', probe: async () => {} }] })).toThrow(
+      'intervalMs must be a positive finite number',
+    );
+    expect(() => new HealthMonitor({ intervalMs: -1, checks: [{ service: 's', probe: async () => {} }] })).toThrow(
+      'intervalMs must be a positive finite number',
+    );
+    expect(() => new HealthMonitor({ intervalMs: Infinity, checks: [{ service: 's', probe: async () => {} }] })).toThrow(
+      'intervalMs must be a positive finite number',
+    );
+  });
+
+  it('throws if no checks are provided', () => {
+    expect(() => new HealthMonitor({ intervalMs: 1000, checks: [] })).toThrow(
+      'At least one health check is required',
+    );
+  });
+
+  it('poll() runs health checks and stores result', async () => {
+    const monitor = new HealthMonitor({
+      intervalMs: 1000,
+      checks: [{ service: 'db', probe: async () => {} }],
+    });
+
+    expect(monitor.getLastStatus()).toBeNull();
+    const status = await monitor.poll();
+    expect(status.healthy).toBe(true);
+    expect(status.services).toHaveLength(1);
+    expect(status.services[0]!.service).toBe('db');
+    expect(monitor.getLastStatus()).toBe(status);
+  });
+
+  it('poll() captures unhealthy services', async () => {
+    const monitor = new HealthMonitor({
+      intervalMs: 1000,
+      checks: [
+        { service: 'ok', probe: async () => {} },
+        {
+          service: 'bad',
+          probe: async () => {
+            throw new Error('down');
+          },
+        },
+      ],
+    });
+
+    const status = await monitor.poll();
+    expect(status.healthy).toBe(false);
+    expect(status.services[1]!.healthy).toBe(false);
+    expect(status.services[1]!.error).toBe('down');
+  });
+
+  it('notifies listeners on poll', async () => {
+    const monitor = new HealthMonitor({
+      intervalMs: 1000,
+      checks: [{ service: 'api', probe: async () => {} }],
+    });
+
+    const listener = vi.fn();
+    monitor.onStatus(listener);
+    await monitor.poll();
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({ healthy: true }));
+  });
+
+  it('offStatus removes a listener', async () => {
+    const monitor = new HealthMonitor({
+      intervalMs: 1000,
+      checks: [{ service: 'api', probe: async () => {} }],
+    });
+
+    const listener = vi.fn();
+    monitor.onStatus(listener);
+    monitor.offStatus(listener);
+    await monitor.poll();
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('offStatus is a no-op for unregistered listener', () => {
+    const monitor = new HealthMonitor({
+      intervalMs: 1000,
+      checks: [{ service: 'api', probe: async () => {} }],
+    });
+    // Should not throw
+    monitor.offStatus(() => {});
+  });
+
+  it('start() begins polling and isRunning() returns true', () => {
+    const monitor = new HealthMonitor({
+      intervalMs: 1000,
+      checks: [{ service: 'api', probe: async () => {} }],
+    });
+
+    expect(monitor.isRunning()).toBe(false);
+    monitor.start();
+    expect(monitor.isRunning()).toBe(true);
+    monitor.stop();
+  });
+
+  it('start() is idempotent', () => {
+    const monitor = new HealthMonitor({
+      intervalMs: 1000,
+      checks: [{ service: 'api', probe: async () => {} }],
+    });
+
+    monitor.start();
+    monitor.start(); // should not throw or create duplicate timers
+    expect(monitor.isRunning()).toBe(true);
+    monitor.stop();
+  });
+
+  it('stop() clears the timer', () => {
+    const monitor = new HealthMonitor({
+      intervalMs: 1000,
+      checks: [{ service: 'api', probe: async () => {} }],
+    });
+
+    monitor.start();
+    monitor.stop();
+    expect(monitor.isRunning()).toBe(false);
+  });
+
+  it('stop() is idempotent', () => {
+    const monitor = new HealthMonitor({
+      intervalMs: 1000,
+      checks: [{ service: 'api', probe: async () => {} }],
+    });
+
+    monitor.stop(); // not started — should not throw
+    expect(monitor.isRunning()).toBe(false);
   });
 });

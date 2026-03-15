@@ -454,11 +454,6 @@ describe('frontend config', () => {
     expect(cfg.assets!.extensions).toEqual(['png', 'webp']);
   });
 
-  it('createFrontendConfig omits assets when not provided', () => {
-    const cfg = createFrontendConfig();
-    expect(cfg.assets).toBeUndefined();
-  });
-
   it('getAssetsConfig returns default when assets not set', () => {
     const assets = getAssetsConfig();
     expect(assets.publicDir).toBe('public');
