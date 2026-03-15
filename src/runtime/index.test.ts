@@ -28,6 +28,8 @@ import {
   ReadinessGate,
   ResourcePool,
   DependencyChecker,
+  LoadShedder,
+  LoadShedError,
 } from './index';
 import type { CircuitState } from './index';
 
@@ -2129,5 +2131,139 @@ describe('DependencyChecker', () => {
     const result = await checker.checkAll();
     expect(result.totalLatencyMs).toBeGreaterThanOrEqual(0);
     expect(result.services[0]?.latencyMs).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('LoadShedder', () => {
+  it('executes functions when under capacity', async () => {
+    const shedder = new LoadShedder({ maxConcurrency: 5 });
+    const result = await shedder.execute(async () => 42);
+    expect(result).toBe(42);
+    expect(shedder.getTotalCount()).toBe(1);
+    expect(shedder.getShedCount()).toBe(0);
+  });
+
+  it('sheds when concurrency limit is reached and no queue', async () => {
+    const shedder = new LoadShedder({ maxConcurrency: 1, maxQueueDepth: 0 });
+    let resolve1!: () => void;
+    const p1 = shedder.execute(() => new Promise<void>((r) => { resolve1 = r; }));
+
+    await expect(shedder.execute(async () => 'blocked')).rejects.toThrow(LoadShedError);
+    expect(shedder.getShedCount()).toBe(1);
+
+    resolve1();
+    await p1;
+  });
+
+  it('queues requests up to maxQueueDepth', async () => {
+    const shedder = new LoadShedder({ maxConcurrency: 1, maxQueueDepth: 1 });
+    let resolve1!: () => void;
+    const p1 = shedder.execute(() => new Promise<string>((r) => { resolve1 = r as () => void; }));
+
+    // This should queue
+    const p2 = shedder.execute(async () => 'queued');
+
+    // This should be shed (queue full)
+    await expect(shedder.execute(async () => 'rejected')).rejects.toThrow(LoadShedError);
+
+    resolve1();
+    await p1;
+    const result = await p2;
+    expect(result).toBe('queued');
+  });
+
+  it('sheds based on latency threshold', async () => {
+    const shedder = new LoadShedder({
+      maxConcurrency: 100,
+      latencyThresholdMs: 10,
+      latencySampleSize: 3,
+    });
+
+    // Record 3 slow samples to trigger latency shedding
+    for (let i = 0; i < 3; i++) {
+      await shedder.execute(async () => {
+        await new Promise((r) => setTimeout(r, 20));
+      });
+    }
+
+    // Next request should be shed due to high average latency
+    await expect(shedder.execute(async () => 'ok')).rejects.toThrow(LoadShedError);
+    const err = await shedder.execute(async () => 'ok').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(LoadShedError);
+    expect((err as LoadShedError).reason).toBe('latency');
+  });
+
+  it('reports average latency', async () => {
+    const shedder = new LoadShedder({ maxConcurrency: 10 });
+    expect(shedder.getAverageLatency()).toBe(0);
+
+    await shedder.execute(async () => {});
+    expect(shedder.getAverageLatency()).toBeGreaterThanOrEqual(0);
+  });
+
+  it('resets counters', async () => {
+    const shedder = new LoadShedder({ maxConcurrency: 10 });
+    await shedder.execute(async () => {});
+    expect(shedder.getTotalCount()).toBe(1);
+
+    shedder.reset();
+    expect(shedder.getTotalCount()).toBe(0);
+    expect(shedder.getShedCount()).toBe(0);
+    expect(shedder.getAverageLatency()).toBe(0);
+  });
+
+  it('tracks running count correctly', async () => {
+    const shedder = new LoadShedder({ maxConcurrency: 5 });
+    expect(shedder.getRunning()).toBe(0);
+
+    let resolve1!: () => void;
+    const p = shedder.execute(() => new Promise<void>((r) => { resolve1 = r; }));
+    // Give microtask a chance to run
+    await new Promise((r) => setTimeout(r, 0));
+    expect(shedder.getRunning()).toBe(1);
+
+    resolve1();
+    await p;
+    expect(shedder.getRunning()).toBe(0);
+  });
+
+  it('records latency even on errors', async () => {
+    const shedder = new LoadShedder({ maxConcurrency: 10 });
+    await shedder.execute(async () => { throw new Error('fail'); }).catch(() => {});
+    expect(shedder.getAverageLatency()).toBeGreaterThanOrEqual(0);
+  });
+
+  it('throws on invalid maxConcurrency', () => {
+    expect(() => new LoadShedder({ maxConcurrency: 0 })).toThrow('positive finite integer');
+    expect(() => new LoadShedder({ maxConcurrency: -1 })).toThrow('positive finite integer');
+  });
+
+  it('throws on invalid maxQueueDepth', () => {
+    expect(() => new LoadShedder({ maxConcurrency: 1, maxQueueDepth: -1 })).toThrow('non-negative finite number');
+  });
+
+  it('throws on invalid latencyThresholdMs', () => {
+    expect(() => new LoadShedder({ maxConcurrency: 1, latencyThresholdMs: 0 })).toThrow('positive finite number');
+  });
+});
+
+describe('LoadShedError', () => {
+  it('has correct name and reason', () => {
+    const err = new LoadShedError('concurrency');
+    expect(err.name).toBe('LoadShedError');
+    expect(err.reason).toBe('concurrency');
+    expect(err.message).toContain('concurrency');
+  });
+
+  it('uses custom message', () => {
+    const err = new LoadShedError('queue', 'custom msg');
+    expect(err.message).toBe('custom msg');
+    expect(err.reason).toBe('queue');
+  });
+
+  it('supports latency reason', () => {
+    const err = new LoadShedError('latency');
+    expect(err.reason).toBe('latency');
+    expect(err.message).toContain('latency');
   });
 });

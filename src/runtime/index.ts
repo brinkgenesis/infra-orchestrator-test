@@ -1516,3 +1516,145 @@ export class DependencyChecker {
     };
   }
 }
+
+export interface LoadShedderOptions {
+  /** Maximum number of concurrent in-flight requests before shedding. */
+  maxConcurrency: number;
+  /** Maximum queue depth for waiting requests. Requests beyond this are shed. */
+  maxQueueDepth?: number;
+  /** Optional latency threshold in ms. If recent average latency exceeds this, new requests are shed. */
+  latencyThresholdMs?: number;
+  /** Number of recent latency samples to average over. Defaults to 20. */
+  latencySampleSize?: number;
+}
+
+/** Error thrown when the load shedder rejects a request. */
+export class LoadShedError extends Error {
+  readonly reason: 'concurrency' | 'queue' | 'latency';
+
+  constructor(reason: 'concurrency' | 'queue' | 'latency', message?: string) {
+    const defaultMessages: Record<string, string> = {
+      concurrency: 'Load shed: max concurrency exceeded',
+      queue: 'Load shed: queue depth exceeded',
+      latency: 'Load shed: latency threshold exceeded',
+    };
+    super(message ?? defaultMessages[reason] ?? 'Load shed');
+    this.name = 'LoadShedError';
+    this.reason = reason;
+  }
+}
+
+/**
+ * Rejects incoming requests early when the system is overloaded, based on
+ * concurrency limits, queue depth, and observed latency. This protects
+ * downstream services by failing fast rather than queuing unbounded work.
+ */
+export class LoadShedder {
+  private running = 0;
+  private readonly queue: Array<() => void> = [];
+  private readonly maxConcurrency: number;
+  private readonly maxQueueDepth: number;
+  private readonly latencyThresholdMs: number | undefined;
+  private readonly latencySamples: number[] = [];
+  private readonly sampleSize: number;
+  private shedCount = 0;
+  private totalCount = 0;
+
+  constructor(opts: LoadShedderOptions) {
+    if (opts.maxConcurrency < 1 || !Number.isFinite(opts.maxConcurrency)) {
+      throw new Error('maxConcurrency must be a positive finite integer');
+    }
+    if (opts.maxQueueDepth !== undefined && (opts.maxQueueDepth < 0 || !Number.isFinite(opts.maxQueueDepth))) {
+      throw new Error('maxQueueDepth must be a non-negative finite number');
+    }
+    if (opts.latencyThresholdMs !== undefined && (opts.latencyThresholdMs <= 0 || !Number.isFinite(opts.latencyThresholdMs))) {
+      throw new Error('latencyThresholdMs must be a positive finite number');
+    }
+    this.maxConcurrency = opts.maxConcurrency;
+    this.maxQueueDepth = opts.maxQueueDepth ?? 0;
+    this.latencyThresholdMs = opts.latencyThresholdMs;
+    this.sampleSize = opts.latencySampleSize ?? 20;
+  }
+
+  /** Returns the number of currently running requests. */
+  getRunning(): number {
+    return this.running;
+  }
+
+  /** Returns the current queue depth. */
+  getQueueLength(): number {
+    return this.queue.length;
+  }
+
+  /** Returns the total number of shed (rejected) requests. */
+  getShedCount(): number {
+    return this.shedCount;
+  }
+
+  /** Returns the total number of requests attempted. */
+  getTotalCount(): number {
+    return this.totalCount;
+  }
+
+  /** Returns the average latency of recent samples, or 0 if no samples. */
+  getAverageLatency(): number {
+    if (this.latencySamples.length === 0) return 0;
+    const sum = this.latencySamples.reduce((a, b) => a + b, 0);
+    return sum / this.latencySamples.length;
+  }
+
+  private recordLatency(ms: number): void {
+    this.latencySamples.push(ms);
+    if (this.latencySamples.length > this.sampleSize) {
+      this.latencySamples.shift();
+    }
+  }
+
+  /** Executes the given function, shedding (rejecting) if load thresholds are exceeded. */
+  async execute<T>(fn: () => Promise<T>): Promise<T> {
+    this.totalCount++;
+
+    // Check latency-based shedding
+    if (this.latencyThresholdMs !== undefined && this.latencySamples.length >= 3) {
+      if (this.getAverageLatency() > this.latencyThresholdMs) {
+        this.shedCount++;
+        throw new LoadShedError('latency');
+      }
+    }
+
+    // Check concurrency-based shedding
+    if (this.running >= this.maxConcurrency) {
+      if (this.queue.length >= this.maxQueueDepth) {
+        this.shedCount++;
+        throw new LoadShedError(this.maxQueueDepth > 0 ? 'queue' : 'concurrency');
+      }
+      await new Promise<void>((resolve) => {
+        this.queue.push(resolve);
+      });
+    }
+
+    this.running++;
+    const start = Date.now();
+    try {
+      const result = await fn();
+      this.recordLatency(Date.now() - start);
+      return result;
+    } catch (err) {
+      this.recordLatency(Date.now() - start);
+      throw err;
+    } finally {
+      this.running--;
+      const next = this.queue.shift();
+      if (next !== undefined) {
+        next();
+      }
+    }
+  }
+
+  /** Resets all counters and latency samples. */
+  reset(): void {
+    this.shedCount = 0;
+    this.totalCount = 0;
+    this.latencySamples.length = 0;
+  }
+}
