@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   formatBytes,
   formatPercentage,
+  formatDuration,
   truncateText,
   padColumn,
   formatStatusLine,
@@ -77,6 +78,40 @@ describe('cli-formatters', () => {
 
     it('returns "0.00%" for Infinity', () => {
       expect(formatPercentage(Infinity)).toBe('0.00%');
+    });
+  });
+
+  describe('formatDuration', () => {
+    it('returns "0 ms" for zero', () => {
+      expect(formatDuration(0)).toBe('0 ms');
+    });
+
+    it('formats milliseconds', () => {
+      expect(formatDuration(450)).toBe('450 ms');
+    });
+
+    it('formats seconds', () => {
+      expect(formatDuration(2500)).toBe('2.5 s');
+    });
+
+    it('formats minutes', () => {
+      expect(formatDuration(90_000)).toBe('1.5 min');
+    });
+
+    it('formats hours', () => {
+      expect(formatDuration(5_400_000)).toBe('1.5 h');
+    });
+
+    it('respects custom decimals', () => {
+      expect(formatDuration(2500, 2)).toBe('2.50 s');
+    });
+
+    it('returns "0 ms" for negative values', () => {
+      expect(formatDuration(-100)).toBe('0 ms');
+    });
+
+    it('returns "0 ms" for NaN', () => {
+      expect(formatDuration(NaN)).toBe('0 ms');
     });
   });
 

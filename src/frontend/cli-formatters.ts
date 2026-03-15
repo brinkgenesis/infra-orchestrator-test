@@ -48,6 +48,18 @@ export function padColumn(text: string, width: number, align: 'left' | 'right' =
 }
 
 /**
+ * Formats a duration in milliseconds into a human-readable string.
+ * Picks the most appropriate unit (ms, s, min, h).
+ */
+export function formatDuration(ms: number, decimals = 1): string {
+  if (!Number.isFinite(ms) || ms < 0) return '0 ms';
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(decimals)} s`;
+  if (ms < 3_600_000) return `${(ms / 60_000).toFixed(decimals)} min`;
+  return `${(ms / 3_600_000).toFixed(decimals)} h`;
+}
+
+/**
  * Formats a key-value pair for CLI status output (e.g. "  Memory:  1.50 GB").
  */
 export function formatStatusLine(label: string, value: string, labelWidth = 12): string {
