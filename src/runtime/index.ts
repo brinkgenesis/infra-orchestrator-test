@@ -1376,17 +1376,17 @@ export class ResourcePool<T> {
     // At capacity — wait for a release
     const timeoutMs = this.opts.acquireTimeoutMs;
     return new Promise<T>((resolve, reject) => {
-      const waiter: (typeof this.waiters)[number] = { resolve, reject, timer: undefined };
+      let timer: ReturnType<typeof setTimeout> | undefined = undefined;
       if (timeoutMs !== undefined && timeoutMs > 0) {
-        waiter.timer = setTimeout(() => {
-          const idx = this.waiters.indexOf(waiter);
+        timer = setTimeout(() => {
+          const idx = this.waiters.findIndex((w) => w.resolve === resolve);
           if (idx !== -1) {
             this.waiters.splice(idx, 1);
           }
           reject(new Error(`ResourcePool acquire timed out after ${timeoutMs}ms`));
         }, timeoutMs);
       }
-      this.waiters.push(waiter);
+      this.waiters.push({ resolve, reject, timer });
     });
   }
 
