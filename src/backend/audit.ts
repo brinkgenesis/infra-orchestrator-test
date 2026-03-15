@@ -99,6 +99,42 @@ export function groupByAction(
   return groups;
 }
 
+/** Groups audit entries by userId and returns a map of userId to entry arrays. */
+export function groupByUser(
+  entries: AuditEntry[],
+): Record<string, AuditEntry[]> {
+  const groups: Record<string, AuditEntry[]> = {};
+  for (const entry of entries) {
+    const key = entry.userId || '<anonymous>';
+    if (!groups[key]) {
+      groups[key] = [];
+    }
+    groups[key]!.push(entry);
+  }
+  return groups;
+}
+
+/** Serializes an AuditEntry to a JSONL-compatible string. */
+export function serializeAuditEntry(entry: AuditEntry): string {
+  const obj: Record<string, unknown> = {
+    timestamp: entry.timestamp,
+    userId: entry.userId,
+    action: entry.action,
+    resource: entry.resource,
+    clientId: entry.clientId,
+    ip: entry.ip,
+  };
+  if (entry['details'] !== undefined) {
+    obj['details'] = entry['details'];
+  }
+  return JSON.stringify(obj);
+}
+
+/** Serializes an array of AuditEntry objects to a multi-line JSONL string. */
+export function serializeAuditLog(entries: AuditEntry[]): string {
+  return entries.map(serializeAuditEntry).join('\n');
+}
+
 /** Creates an in-memory audit store with append, query, and summary operations. */
 export function createAuditStore(initial: AuditEntry[] = []) {
   const entries: AuditEntry[] = [...initial];
@@ -130,6 +166,18 @@ export function createAuditStore(initial: AuditEntry[] = []) {
 
     all(): ReadonlyArray<AuditEntry> {
       return [...entries];
+    },
+
+    groupByAction(): Record<string, AuditEntry[]> {
+      return groupByAction(entries);
+    },
+
+    groupByUser(): Record<string, AuditEntry[]> {
+      return groupByUser(entries);
+    },
+
+    serialize(): string {
+      return serializeAuditLog(entries);
     },
   };
 }
