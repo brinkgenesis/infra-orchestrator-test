@@ -1,3 +1,4 @@
+/** Represents the health check result for a single service endpoint. */
 export interface HealthStatus {
   healthy: boolean;
   service: string;
