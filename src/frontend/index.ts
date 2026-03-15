@@ -127,7 +127,7 @@ export function buildViteConfig(
 }
 
 export function getAssetsConfig(cfg: FrontendConfig = config): AssetsConfig {
-  return cfg.assets ?? { publicDir: 'public', extensions: ['png', 'jpg', 'svg', 'ico'] };
+  return cfg.assets ?? { publicDir: 'public', extensions: ['png', 'jpg', 'svg', 'woff2', 'woff'] };
 }
 
 export function resolveAssetPublicPath(fileName: string, cfg: FrontendConfig = config): string {
@@ -147,7 +147,7 @@ export function isAllowedAsset(fileName: string, cfg: FrontendConfig = config): 
 
 export type PresetName = 'development' | 'staging' | 'production';
 
-const defaultAssets: AssetsConfig = { publicDir: 'public', extensions: ['png', 'jpg', 'svg', 'ico'] };
+const defaultAssets: AssetsConfig = { publicDir: 'public', extensions: ['png', 'jpg', 'svg', 'woff2', 'woff'] };
 
 const presets: Record<PresetName, FrontendConfig> = {
   development: {
