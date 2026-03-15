@@ -1,213 +1,273 @@
 import { describe, it, expect } from 'vitest';
 import {
+  colors,
   colorize,
+  success,
+  warning,
+  error,
+  info,
+  muted,
   bold,
-  dim,
-  underline,
-  severityColor,
-  formatSeverity,
   stripAnsi,
-  formatBadge,
-  formatHeader,
-  formatKeyValue,
-  formatList,
-  formatTable,
+  visibleLength,
+  formatLogLine,
+  createComponentLogger,
+  createTheme,
+  horizontalRule,
+  sectionHeader,
+  kvPair,
+  statusBadge,
 } from './cli-theme';
-import type { Color, Severity, StatusBadge } from './cli-theme';
 
 const ESC = '\x1b[';
-const RESET = `${ESC}0m`;
 
 describe('cli-theme', () => {
+  describe('colors', () => {
+    it('defines a reset code', () => {
+      expect(colors.reset).toBe(`${ESC}0m`);
+    });
+
+    it('defines standard foreground colors', () => {
+      expect(colors.red).toBe(`${ESC}31m`);
+      expect(colors.green).toBe(`${ESC}32m`);
+      expect(colors.yellow).toBe(`${ESC}33m`);
+      expect(colors.blue).toBe(`${ESC}34m`);
+      expect(colors.cyan).toBe(`${ESC}36m`);
+    });
+
+    it('defines style modifiers', () => {
+      expect(colors.bold).toBe(`${ESC}1m`);
+      expect(colors.dim).toBe(`${ESC}2m`);
+    });
+  });
+
   describe('colorize', () => {
-    it('wraps text with ANSI color codes', () => {
-      expect(colorize('hello', 'red')).toBe(`${ESC}31mhello${RESET}`);
-      expect(colorize('ok', 'green')).toBe(`${ESC}32mok${RESET}`);
+    it('wraps text with color and reset codes', () => {
+      expect(colorize('hello', 'red')).toBe(`${ESC}31mhello${ESC}0m`);
     });
 
-    it('supports all defined colors', () => {
-      const colors: Color[] = ['red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'gray', 'white'];
-      for (const color of colors) {
-        const result = colorize('x', color);
-        expect(result).toContain('x');
-        expect(result).toContain(ESC);
-        expect(result).toContain(RESET);
-      }
+    it('returns plain text for reset color', () => {
+      expect(colorize('hello', 'reset')).toBe('hello');
     });
 
-    it('handles empty string', () => {
-      expect(colorize('', 'red')).toBe(`${ESC}31m${RESET}`);
+    it('handles empty strings', () => {
+      expect(colorize('', 'green')).toBe(`${ESC}32m${ESC}0m`);
     });
   });
 
-  describe('bold', () => {
-    it('wraps text with bold ANSI code', () => {
-      expect(bold('text')).toBe(`${ESC}1mtext${RESET}`);
-    });
-  });
-
-  describe('dim', () => {
-    it('wraps text with dim ANSI code', () => {
-      expect(dim('text')).toBe(`${ESC}2mtext${RESET}`);
-    });
-  });
-
-  describe('underline', () => {
-    it('wraps text with underline ANSI code', () => {
-      expect(underline('text')).toBe(`${ESC}4mtext${RESET}`);
-    });
-  });
-
-  describe('severityColor', () => {
-    it('maps severity levels to expected colors', () => {
-      expect(severityColor('success')).toBe('green');
-      expect(severityColor('warning')).toBe('yellow');
-      expect(severityColor('error')).toBe('red');
-      expect(severityColor('info')).toBe('cyan');
-      expect(severityColor('muted')).toBe('gray');
-    });
-  });
-
-  describe('formatSeverity', () => {
-    it('applies correct color for each severity', () => {
-      const severities: Severity[] = ['success', 'warning', 'error', 'info', 'muted'];
-      for (const sev of severities) {
-        const result = formatSeverity('msg', sev);
-        expect(result).toContain('msg');
-        expect(result).toContain(ESC);
-        expect(result).toContain(RESET);
-      }
+  describe('semantic helpers', () => {
+    it('success applies green', () => {
+      expect(stripAnsi(success('ok'))).toBe('ok');
+      expect(success('ok')).toContain(colors.green);
     });
 
-    it('success uses green color code', () => {
-      expect(formatSeverity('ok', 'success')).toBe(`${ESC}32mok${RESET}`);
+    it('warning applies yellow', () => {
+      expect(stripAnsi(warning('caution'))).toBe('caution');
+      expect(warning('caution')).toContain(colors.yellow);
     });
 
-    it('error uses red color code', () => {
-      expect(formatSeverity('fail', 'error')).toBe(`${ESC}31mfail${RESET}`);
+    it('error applies bold + red', () => {
+      expect(stripAnsi(error('fail'))).toBe('fail');
+      expect(error('fail')).toContain(colors.bold);
+      expect(error('fail')).toContain(colors.red);
+    });
+
+    it('info applies cyan', () => {
+      expect(stripAnsi(info('note'))).toBe('note');
+      expect(info('note')).toContain(colors.cyan);
+    });
+
+    it('muted applies gray', () => {
+      expect(stripAnsi(muted('dim'))).toBe('dim');
+      expect(muted('dim')).toContain(colors.gray);
+    });
+
+    it('bold applies bold style', () => {
+      expect(stripAnsi(bold('strong'))).toBe('strong');
+      expect(bold('strong')).toContain(colors.bold);
     });
   });
 
   describe('stripAnsi', () => {
-    it('removes ANSI codes from colored text', () => {
-      const colored = colorize('hello', 'red');
-      expect(stripAnsi(colored)).toBe('hello');
-    });
-
-    it('removes bold codes', () => {
-      expect(stripAnsi(bold('text'))).toBe('text');
-    });
-
-    it('removes dim codes', () => {
-      expect(stripAnsi(dim('text'))).toBe('text');
+    it('removes ANSI codes from styled text', () => {
+      expect(stripAnsi(colorize('hello', 'red'))).toBe('hello');
     });
 
     it('returns plain text unchanged', () => {
       expect(stripAnsi('plain')).toBe('plain');
     });
 
+    it('handles multiple ANSI sequences', () => {
+      const styled = `${colors.bold}${colors.red}error${colors.reset}`;
+      expect(stripAnsi(styled)).toBe('error');
+    });
+
     it('handles empty string', () => {
       expect(stripAnsi('')).toBe('');
     });
+  });
 
-    it('strips multiple ANSI sequences', () => {
-      const mixed = `${ESC}1m${ESC}31mhello${RESET}${RESET}`;
-      expect(stripAnsi(mixed)).toBe('hello');
+  describe('visibleLength', () => {
+    it('returns correct length for styled text', () => {
+      expect(visibleLength(colorize('hello', 'red'))).toBe(5);
+    });
+
+    it('returns correct length for plain text', () => {
+      expect(visibleLength('hello')).toBe(5);
+    });
+
+    it('returns 0 for empty string', () => {
+      expect(visibleLength('')).toBe(0);
     });
   });
 
-  describe('formatBadge', () => {
-    it('wraps label in brackets with severity color', () => {
-      const badge: StatusBadge = { label: 'PASS', severity: 'success' };
-      const result = formatBadge(badge);
-      expect(stripAnsi(result)).toBe('[PASS]');
-      expect(result).toContain(ESC);
+  describe('formatLogLine', () => {
+    it('formats debug level', () => {
+      const line = formatLogLine('debug', 'test message');
+      expect(stripAnsi(line)).toBe('[DBG] test message');
     });
 
-    it('uses error color for error badges', () => {
-      const badge: StatusBadge = { label: 'FAIL', severity: 'error' };
-      const result = formatBadge(badge);
-      expect(result).toContain(`${ESC}31m`);
-      expect(stripAnsi(result)).toBe('[FAIL]');
-    });
-  });
-
-  describe('formatHeader', () => {
-    it('applies bold and underline', () => {
-      const result = formatHeader('Title');
-      expect(result).toContain('Title');
-      expect(result).toContain(`${ESC}1m`);
-      expect(result).toContain(`${ESC}4m`);
-    });
-  });
-
-  describe('formatKeyValue', () => {
-    it('formats key with color and value', () => {
-      const result = formatKeyValue('Name', 'Test');
-      expect(stripAnsi(result)).toBe('Name: Test');
+    it('formats info level', () => {
+      const line = formatLogLine('info', 'server started');
+      expect(stripAnsi(line)).toBe('[INF] server started');
     });
 
-    it('uses custom key color', () => {
-      const result = formatKeyValue('Status', 'ok', 'green');
-      expect(result).toContain(`${ESC}32m`);
-      expect(stripAnsi(result)).toBe('Status: ok');
+    it('formats warn level', () => {
+      const line = formatLogLine('warn', 'slow query');
+      expect(stripAnsi(line)).toBe('[WRN] slow query');
+    });
+
+    it('formats error level', () => {
+      const line = formatLogLine('error', 'connection lost');
+      expect(stripAnsi(line)).toBe('[ERR] connection lost');
+    });
+
+    it('applies color to the level label', () => {
+      const line = formatLogLine('info', 'msg');
+      expect(line).toContain(colors.cyan);
     });
   });
 
-  describe('formatList', () => {
-    it('formats items with default bullet', () => {
-      const result = formatList(['one', 'two']);
-      const lines = result.split('\n');
-      expect(lines).toHaveLength(2);
-      expect(stripAnsi(lines[0]!)).toContain('- one');
-      expect(stripAnsi(lines[1]!)).toContain('- two');
+  describe('createComponentLogger', () => {
+    it('returns a function', () => {
+      const log = createComponentLogger('App');
+      expect(typeof log).toBe('function');
     });
 
-    it('uses custom bullet', () => {
-      const result = formatList(['item'], '*');
-      expect(stripAnsi(result)).toContain('* item');
+    it('includes component name in output', () => {
+      const log = createComponentLogger('Router');
+      const line = log('info', 'route matched');
+      expect(stripAnsi(line)).toContain('Router');
+      expect(stripAnsi(line)).toContain('route matched');
     });
 
-    it('returns empty string for empty array', () => {
-      expect(formatList([])).toBe('');
+    it('applies magenta to component name', () => {
+      const log = createComponentLogger('DB');
+      const line = log('debug', 'query');
+      expect(line).toContain(colors.magenta);
     });
   });
 
-  describe('formatTable', () => {
-    it('formats rows into aligned columns', () => {
-      const rows = [
-        ['Name', 'Status'],
-        ['api', 'ok'],
-        ['db', 'degraded'],
-      ];
-      const result = formatTable(rows);
-      const lines = result.split('\n');
-      expect(lines).toHaveLength(3);
-      // columns should be padded to match widest entry
-      expect(lines[0]).toContain('Name');
-      expect(lines[0]).toContain('Status');
+  describe('createTheme', () => {
+    it('returns a theme with defaults', () => {
+      const theme = createTheme();
+      expect(theme.config.useColor).toBe(true);
+      expect(theme.config.prefix).toBe('');
     });
 
-    it('returns empty string for empty rows', () => {
-      expect(formatTable([])).toBe('');
+    it('format applies color when useColor is true', () => {
+      const theme = createTheme({ useColor: true });
+      const styled = theme.format('text', 'red');
+      expect(styled).toContain(colors.red);
     });
 
-    it('respects custom column widths', () => {
-      const rows = [['a', 'b']];
-      const result = formatTable(rows, { columnWidths: [10, 10] });
-      expect(result.length).toBeGreaterThanOrEqual(20);
+    it('format returns plain text when useColor is false', () => {
+      const theme = createTheme({ useColor: false });
+      const styled = theme.format('text', 'red');
+      expect(styled).toBe('text');
     });
 
-    it('respects custom separator', () => {
-      const rows = [['a', 'b']];
-      const result = formatTable(rows, { separator: ' | ' });
-      expect(result).toContain(' | ');
+    it('formatPrefix prepends prefix when set', () => {
+      const theme = createTheme({ prefix: '[APP]' });
+      expect(theme.formatPrefix('msg')).toBe('[APP] msg');
     });
 
-    it('handles rows with different column counts', () => {
-      const rows = [['a', 'b', 'c'], ['d']];
-      const result = formatTable(rows);
-      expect(result.split('\n')).toHaveLength(2);
+    it('formatPrefix returns text unchanged when no prefix', () => {
+      const theme = createTheme();
+      expect(theme.formatPrefix('msg')).toBe('msg');
+    });
+
+    it('accepts partial overrides', () => {
+      const theme = createTheme({ prefix: '>' });
+      expect(theme.config.useColor).toBe(true);
+      expect(theme.config.prefix).toBe('>');
+    });
+  });
+
+  describe('horizontalRule', () => {
+    it('creates a muted horizontal rule of default width', () => {
+      const rule = horizontalRule();
+      expect(stripAnsi(rule)).toBe('─'.repeat(40));
+    });
+
+    it('respects custom width', () => {
+      const rule = horizontalRule(10);
+      expect(stripAnsi(rule)).toBe('─'.repeat(10));
+    });
+
+    it('respects custom character', () => {
+      const rule = horizontalRule(5, '=');
+      expect(stripAnsi(rule)).toBe('=====');
+    });
+  });
+
+  describe('sectionHeader', () => {
+    it('includes the title in output', () => {
+      const header = sectionHeader('Status');
+      expect(stripAnsi(header)).toContain('Status');
+    });
+
+    it('includes a separator line', () => {
+      const header = sectionHeader('Test', 20);
+      expect(stripAnsi(header)).toContain('─');
+    });
+  });
+
+  describe('kvPair', () => {
+    it('formats key-value with muted key', () => {
+      const pair = kvPair('Port', '3000');
+      expect(stripAnsi(pair)).toBe('Port: 3000');
+    });
+
+    it('applies muted style to key', () => {
+      const pair = kvPair('Host', 'localhost');
+      expect(pair).toContain(colors.gray);
+    });
+  });
+
+  describe('statusBadge', () => {
+    it('returns green badge for ok', () => {
+      const badge = statusBadge('ok');
+      expect(stripAnsi(badge)).toBe('● OK');
+      expect(badge).toContain(colors.green);
+    });
+
+    it('returns yellow badge for warn', () => {
+      const badge = statusBadge('warn');
+      expect(stripAnsi(badge)).toBe('● WARN');
+      expect(badge).toContain(colors.yellow);
+    });
+
+    it('returns red badge for error', () => {
+      const badge = statusBadge('error');
+      expect(stripAnsi(badge)).toBe('● ERROR');
+      expect(badge).toContain(colors.red);
+    });
+
+    it('returns muted badge for unknown', () => {
+      const badge = statusBadge('unknown');
+      expect(stripAnsi(badge)).toBe('○ UNKNOWN');
+      expect(badge).toContain(colors.gray);
     });
   });
 });
