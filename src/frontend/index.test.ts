@@ -21,6 +21,12 @@ import {
   frontendConfig,
   getAssetsConfig,
   resolveAssetPublicPath,
+  isAllowedAsset,
+  getPreset,
+  getPresetWith,
+  configsEqual,
+  serializeConfig,
+  deserializeConfig,
 } from './index';
 import type { FrontendConfig } from './index';
 
@@ -340,5 +346,104 @@ describe('frontend config', () => {
   it('resolveAssetPublicPath respects custom assets config', () => {
     const cfg = createFrontendConfig({ assets: { publicDir: 'static/', extensions: ['svg'] } });
     expect(resolveAssetPublicPath('icon.svg', cfg)).toBe('static/icon.svg');
+  });
+
+  describe('isAllowedAsset', () => {
+    it('returns true for allowed extensions', () => {
+      expect(isAllowedAsset('logo.png')).toBe(true);
+      expect(isAllowedAsset('icon.svg')).toBe(true);
+    });
+
+    it('returns false for disallowed extensions', () => {
+      expect(isAllowedAsset('script.js')).toBe(false);
+      expect(isAllowedAsset('style.css')).toBe(false);
+    });
+
+    it('returns false for files without extension', () => {
+      expect(isAllowedAsset('README')).toBe(false);
+    });
+
+    it('is case-insensitive', () => {
+      expect(isAllowedAsset('logo.PNG')).toBe(true);
+      expect(isAllowedAsset('icon.SVG')).toBe(true);
+    });
+
+    it('respects custom config extensions', () => {
+      const cfg = makeConfig({ assets: { extensions: ['gif', 'webp'] } });
+      expect(isAllowedAsset('image.gif', cfg)).toBe(true);
+      expect(isAllowedAsset('photo.webp', cfg)).toBe(true);
+      expect(isAllowedAsset('logo.png', cfg)).toBe(false);
+    });
+  });
+
+  describe('getPreset', () => {
+    it('returns development preset with hmr enabled', () => {
+      const preset = getPreset('development');
+      expect(preset.dev.hmr).toBe(true);
+      expect(preset.build.sourcemap).toBe(true);
+      expect(preset.build.minify).toBe(false);
+    });
+
+    it('returns production preset with minify and no sourcemap', () => {
+      const preset = getPreset('production');
+      expect(preset.dev.hmr).toBe(false);
+      expect(preset.build.sourcemap).toBe(false);
+      expect(preset.build.minify).toBe(true);
+    });
+
+    it('returns staging preset with sourcemap and minify', () => {
+      const preset = getPreset('staging');
+      expect(preset.build.sourcemap).toBe(true);
+      expect(preset.build.minify).toBe(true);
+    });
+
+    it('returns a copy so mutations do not affect the original', () => {
+      const a = getPreset('development');
+      a.dev.port = 9999;
+      const b = getPreset('development');
+      expect(b.dev.port).toBe(3000);
+    });
+  });
+
+  describe('getPresetWith', () => {
+    it('merges overrides into a preset', () => {
+      const cfg = getPresetWith('development', { dev: { port: 5000 } });
+      expect(cfg.dev.port).toBe(5000);
+      expect(cfg.dev.hmr).toBe(true);
+    });
+
+    it('overrides build settings', () => {
+      const cfg = getPresetWith('production', { build: { sourcemap: true } });
+      expect(cfg.build.sourcemap).toBe(true);
+      expect(cfg.build.minify).toBe(true);
+    });
+  });
+
+  describe('configsEqual', () => {
+    it('returns true for identical configs', () => {
+      const a = getPreset('development');
+      const b = getPreset('development');
+      expect(configsEqual(a, b)).toBe(true);
+    });
+
+    it('returns false for different configs', () => {
+      const a = getPreset('development');
+      const b = getPreset('production');
+      expect(configsEqual(a, b)).toBe(false);
+    });
+  });
+
+  describe('serializeConfig / deserializeConfig', () => {
+    it('round-trips a config through JSON', () => {
+      const original = getPreset('staging');
+      const json = serializeConfig(original);
+      const restored = deserializeConfig(json);
+      expect(configsEqual(original, restored)).toBe(true);
+    });
+
+    it('produces valid JSON string', () => {
+      const json = serializeConfig(getPreset('development'));
+      expect(() => JSON.parse(json)).not.toThrow();
+    });
   });
 });
