@@ -25,6 +25,11 @@ import {
   AdaptiveConcurrencyLimiter,
   PeriodicTask,
   Semaphore,
+  ReadinessGate,
+  ResourcePool,
+  DependencyChecker,
+  LoadShedder,
+  LoadShedError,
 } from './index';
 import type { CircuitState } from './index';
 
@@ -1759,5 +1764,506 @@ describe('Semaphore', () => {
     await p2;
 
     expect(order).toEqual([1, 2]);
+  });
+});
+
+describe('ReadinessGate', () => {
+  it('is ready by default with no conditions', () => {
+    const gate = new ReadinessGate();
+    expect(gate.isReady()).toBe(true);
+  });
+
+  it('is not ready when conditions are registered but unsatisfied', () => {
+    const gate = new ReadinessGate();
+    gate.register('db');
+    gate.register('cache');
+    expect(gate.isReady()).toBe(false);
+    expect(gate.pending()).toEqual(['db', 'cache']);
+  });
+
+  it('becomes ready when all conditions are satisfied', () => {
+    const gate = new ReadinessGate();
+    gate.register('db');
+    gate.register('cache');
+    gate.satisfy('db');
+    expect(gate.isReady()).toBe(false);
+    expect(gate.pending()).toEqual(['cache']);
+    gate.satisfy('cache');
+    expect(gate.isReady()).toBe(true);
+    expect(gate.pending()).toEqual([]);
+  });
+
+  it('throws when satisfying an unknown condition', () => {
+    const gate = new ReadinessGate();
+    expect(() => gate.satisfy('unknown')).toThrow('Unknown readiness condition: unknown');
+  });
+
+  it('throws when unsatisfying an unknown condition', () => {
+    const gate = new ReadinessGate();
+    expect(() => gate.unsatisfy('unknown')).toThrow('Unknown readiness condition: unknown');
+  });
+
+  it('can unsatisfy a previously satisfied condition', () => {
+    const gate = new ReadinessGate();
+    gate.register('db');
+    gate.satisfy('db');
+    expect(gate.isReady()).toBe(true);
+    gate.unsatisfy('db');
+    expect(gate.isReady()).toBe(false);
+  });
+
+  it('waitUntilReady resolves immediately if already ready', async () => {
+    const gate = new ReadinessGate();
+    gate.register('db');
+    gate.satisfy('db');
+    await gate.waitUntilReady(); // should not hang
+  });
+
+  it('waitUntilReady resolves when conditions are met', async () => {
+    const gate = new ReadinessGate();
+    gate.register('db');
+    gate.register('cache');
+
+    let resolved = false;
+    const promise = gate.waitUntilReady().then(() => {
+      resolved = true;
+    });
+
+    expect(resolved).toBe(false);
+    gate.satisfy('db');
+    // Flush microtasks
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    gate.satisfy('cache');
+    await promise;
+    expect(resolved).toBe(true);
+  });
+
+  it('reset makes all conditions unsatisfied', () => {
+    const gate = new ReadinessGate();
+    gate.register('db');
+    gate.register('cache');
+    gate.satisfy('db');
+    gate.satisfy('cache');
+    expect(gate.isReady()).toBe(true);
+    gate.reset();
+    expect(gate.isReady()).toBe(false);
+    expect(gate.pending()).toEqual(['db', 'cache']);
+  });
+
+  it('duplicate register does not reset existing state', () => {
+    const gate = new ReadinessGate();
+    gate.register('db');
+    gate.satisfy('db');
+    gate.register('db'); // should be no-op
+    expect(gate.isReady()).toBe(true);
+  });
+});
+
+describe('ResourcePool', () => {
+  let idCounter: number;
+  const makePool = (overrides: Partial<import('./index').ResourcePoolOptions<{ id: number }>> = {}) => {
+    idCounter = 0;
+    return new ResourcePool<{ id: number }>({
+      create: async () => ({ id: ++idCounter }),
+      destroy: async () => {},
+      maxSize: 3,
+      ...overrides,
+    });
+  };
+
+  it('creates resources on acquire', async () => {
+    const pool = makePool();
+    const r = await pool.acquire();
+    expect(r.id).toBe(1);
+    expect(pool.getInUseCount()).toBe(1);
+    expect(pool.getIdleCount()).toBe(0);
+  });
+
+  it('reuses released resources', async () => {
+    const pool = makePool();
+    const r1 = await pool.acquire();
+    pool.release(r1);
+    expect(pool.getIdleCount()).toBe(1);
+    const r2 = await pool.acquire();
+    expect(r2.id).toBe(1); // same resource reused
+    expect(pool.getIdleCount()).toBe(0);
+  });
+
+  it('respects maxSize and queues waiters', async () => {
+    const pool = makePool({ maxSize: 1 });
+    const r1 = await pool.acquire();
+    expect(pool.getSize()).toBe(1);
+
+    let resolved = false;
+    const p = pool.acquire().then((r) => {
+      resolved = true;
+      return r;
+    });
+
+    // Waiter should be queued
+    expect(pool.getWaiterCount()).toBe(1);
+    expect(resolved).toBe(false);
+
+    pool.release(r1);
+    const r2 = await p;
+    expect(resolved).toBe(true);
+    expect(r2.id).toBe(1); // same resource handed to waiter
+    pool.release(r2);
+  });
+
+  it('validates resources before handing them out', async () => {
+    let validateCount = 0;
+    const pool = makePool({
+      validate: async (r) => {
+        validateCount++;
+        return r.id !== 1; // reject resource 1
+      },
+    });
+
+    const r1 = await pool.acquire();
+    expect(r1.id).toBe(1);
+    pool.release(r1);
+
+    // Acquiring again should reject r1 and create r2
+    const r2 = await pool.acquire();
+    expect(r2.id).toBe(2);
+    expect(validateCount).toBe(1);
+    pool.release(r2);
+  });
+
+  it('acquire times out when pool is exhausted', async () => {
+    const pool = makePool({ maxSize: 1, acquireTimeoutMs: 50 });
+    await pool.acquire(); // take the only slot
+
+    await expect(pool.acquire()).rejects.toThrow('timed out');
+  });
+
+  it('evicts idle resources past timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const destroyed: number[] = [];
+      const pool = makePool({
+        idleTimeoutMs: 100,
+        destroy: async (r) => { destroyed.push(r.id); },
+      });
+      const r1 = await pool.acquire();
+      const r2 = await pool.acquire();
+      pool.release(r1);
+      pool.release(r2);
+      expect(pool.getIdleCount()).toBe(2);
+
+      vi.advanceTimersByTime(150);
+      const evicted = pool.evictIdle();
+      expect(evicted).toBe(2);
+      expect(pool.getIdleCount()).toBe(0);
+      expect(destroyed).toEqual([1, 2]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('evictIdle respects minIdle', async () => {
+    vi.useFakeTimers();
+    try {
+      const pool = makePool({ idleTimeoutMs: 100, minIdle: 1 });
+      const r1 = await pool.acquire();
+      const r2 = await pool.acquire();
+      pool.release(r1);
+      pool.release(r2);
+
+      vi.advanceTimersByTime(150);
+      const evicted = pool.evictIdle();
+      expect(evicted).toBe(1);
+      expect(pool.getIdleCount()).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('close destroys idle resources and rejects waiters', async () => {
+    const destroyed: number[] = [];
+    const pool = makePool({
+      maxSize: 1,
+      destroy: async (r) => { destroyed.push(r.id); },
+    });
+    const r1 = await pool.acquire();
+    pool.release(r1);
+
+    // Queue a waiter
+    const r2Promise = pool.acquire(); // gets r1
+    const r2 = await r2Promise;
+    const waiterPromise = pool.acquire(); // should queue
+
+    await pool.close();
+    await expect(waiterPromise).rejects.toThrow('closed');
+    pool.release(r2); // release after close destroys
+    expect(destroyed).toContain(r2.id);
+  });
+
+  it('throws on acquire after close', async () => {
+    const pool = makePool();
+    await pool.close();
+    await expect(pool.acquire()).rejects.toThrow('closed');
+  });
+
+  it('throws on invalid maxSize', () => {
+    expect(() => makePool({ maxSize: 0 })).toThrow('maxSize');
+    expect(() => makePool({ maxSize: -1 })).toThrow('maxSize');
+  });
+
+  it('throws on invalid minIdle', () => {
+    expect(() => makePool({ minIdle: -1 })).toThrow('minIdle');
+    expect(() => makePool({ maxSize: 2, minIdle: 5 })).toThrow('minIdle');
+  });
+
+  it('getSize returns idle + inUse', async () => {
+    const pool = makePool();
+    const r1 = await pool.acquire();
+    const r2 = await pool.acquire();
+    pool.release(r1);
+    expect(pool.getSize()).toBe(2); // 1 idle + 1 in-use
+    pool.release(r2);
+    expect(pool.getSize()).toBe(2); // 2 idle
+  });
+});
+
+describe('DependencyChecker', () => {
+  it('reports all healthy when all probes pass', async () => {
+    const checker = new DependencyChecker(1000);
+    checker
+      .register({ service: 'db', probe: async () => {} })
+      .register({ service: 'cache', probe: async () => {} });
+
+    const result = await checker.checkAll();
+    expect(result.ready).toBe(true);
+    expect(result.requiredHealthy).toBe(true);
+    expect(result.services).toHaveLength(2);
+    expect(result.services.every((s) => s.healthy)).toBe(true);
+  });
+
+  it('reports not ready when a probe fails', async () => {
+    const checker = new DependencyChecker(1000);
+    checker
+      .register({ service: 'db', probe: async () => {} })
+      .register({
+        service: 'cache',
+        probe: async () => {
+          throw new Error('connection refused');
+        },
+      });
+
+    const result = await checker.checkAll();
+    expect(result.ready).toBe(false);
+    const cacheStatus = result.services.find((s) => s.service === 'cache');
+    expect(cacheStatus?.healthy).toBe(false);
+    expect(cacheStatus?.error).toContain('connection refused');
+  });
+
+  it('times out hanging probes using per-probe timeout', async () => {
+    const checker = new DependencyChecker(5000);
+    checker.register({
+      service: 'slow-service',
+      probe: () => new Promise(() => {}), // never resolves
+      timeoutMs: 50,
+    });
+
+    const result = await checker.checkAll();
+    expect(result.ready).toBe(false);
+    expect(result.services[0]?.healthy).toBe(false);
+    expect(result.services[0]?.error).toContain('timed out');
+  });
+
+  it('times out using default timeout when no per-probe timeout set', async () => {
+    const checker = new DependencyChecker(50);
+    checker.register({
+      service: 'slow-service',
+      probe: () => new Promise(() => {}),
+    });
+
+    const result = await checker.checkAll();
+    expect(result.ready).toBe(false);
+    expect(result.services[0]?.healthy).toBe(false);
+  });
+
+  it('distinguishes required vs optional dependencies', async () => {
+    const checker = new DependencyChecker(1000);
+    checker
+      .register({ service: 'db', probe: async () => {}, required: true })
+      .register({
+        service: 'metrics',
+        probe: async () => {
+          throw new Error('down');
+        },
+        required: false,
+      });
+
+    const result = await checker.checkAll();
+    expect(result.ready).toBe(false); // not all healthy
+    expect(result.requiredHealthy).toBe(true); // required deps are fine
+  });
+
+  it('returns empty results when no dependencies registered', async () => {
+    const checker = new DependencyChecker(1000);
+    const result = await checker.checkAll();
+    expect(result.ready).toBe(true);
+    expect(result.requiredHealthy).toBe(true);
+    expect(result.services).toHaveLength(0);
+  });
+
+  it('list returns registered service names', () => {
+    const checker = new DependencyChecker();
+    checker
+      .register({ service: 'db', probe: async () => {} })
+      .register({ service: 'cache', probe: async () => {} });
+    expect(checker.list()).toEqual(['db', 'cache']);
+  });
+
+  it('throws on invalid defaultTimeoutMs', () => {
+    expect(() => new DependencyChecker(0)).toThrow('positive finite number');
+    expect(() => new DependencyChecker(-100)).toThrow('positive finite number');
+    expect(() => new DependencyChecker(Infinity)).toThrow('positive finite number');
+  });
+
+  it('tracks latency in results', async () => {
+    const checker = new DependencyChecker(1000);
+    checker.register({ service: 'db', probe: async () => {} });
+    const result = await checker.checkAll();
+    expect(result.totalLatencyMs).toBeGreaterThanOrEqual(0);
+    expect(result.services[0]?.latencyMs).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('LoadShedder', () => {
+  it('executes functions when under capacity', async () => {
+    const shedder = new LoadShedder({ maxConcurrency: 5 });
+    const result = await shedder.execute(async () => 42);
+    expect(result).toBe(42);
+    expect(shedder.getTotalCount()).toBe(1);
+    expect(shedder.getShedCount()).toBe(0);
+  });
+
+  it('sheds when concurrency limit is reached and no queue', async () => {
+    const shedder = new LoadShedder({ maxConcurrency: 1, maxQueueDepth: 0 });
+    let resolve1!: () => void;
+    const p1 = shedder.execute(() => new Promise<void>((r) => { resolve1 = r; }));
+
+    await expect(shedder.execute(async () => 'blocked')).rejects.toThrow(LoadShedError);
+    expect(shedder.getShedCount()).toBe(1);
+
+    resolve1();
+    await p1;
+  });
+
+  it('queues requests up to maxQueueDepth', async () => {
+    const shedder = new LoadShedder({ maxConcurrency: 1, maxQueueDepth: 1 });
+    let resolve1!: () => void;
+    const p1 = shedder.execute(() => new Promise<string>((r) => { resolve1 = r as () => void; }));
+
+    // This should queue
+    const p2 = shedder.execute(async () => 'queued');
+
+    // This should be shed (queue full)
+    await expect(shedder.execute(async () => 'rejected')).rejects.toThrow(LoadShedError);
+
+    resolve1();
+    await p1;
+    const result = await p2;
+    expect(result).toBe('queued');
+  });
+
+  it('sheds based on latency threshold', async () => {
+    const shedder = new LoadShedder({
+      maxConcurrency: 100,
+      latencyThresholdMs: 10,
+      latencySampleSize: 3,
+    });
+
+    // Record 3 slow samples to trigger latency shedding
+    for (let i = 0; i < 3; i++) {
+      await shedder.execute(async () => {
+        await new Promise((r) => setTimeout(r, 20));
+      });
+    }
+
+    // Next request should be shed due to high average latency
+    await expect(shedder.execute(async () => 'ok')).rejects.toThrow(LoadShedError);
+    const err = await shedder.execute(async () => 'ok').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(LoadShedError);
+    expect((err as LoadShedError).reason).toBe('latency');
+  });
+
+  it('reports average latency', async () => {
+    const shedder = new LoadShedder({ maxConcurrency: 10 });
+    expect(shedder.getAverageLatency()).toBe(0);
+
+    await shedder.execute(async () => {});
+    expect(shedder.getAverageLatency()).toBeGreaterThanOrEqual(0);
+  });
+
+  it('resets counters', async () => {
+    const shedder = new LoadShedder({ maxConcurrency: 10 });
+    await shedder.execute(async () => {});
+    expect(shedder.getTotalCount()).toBe(1);
+
+    shedder.reset();
+    expect(shedder.getTotalCount()).toBe(0);
+    expect(shedder.getShedCount()).toBe(0);
+    expect(shedder.getAverageLatency()).toBe(0);
+  });
+
+  it('tracks running count correctly', async () => {
+    const shedder = new LoadShedder({ maxConcurrency: 5 });
+    expect(shedder.getRunning()).toBe(0);
+
+    let resolve1!: () => void;
+    const p = shedder.execute(() => new Promise<void>((r) => { resolve1 = r; }));
+    // Give microtask a chance to run
+    await new Promise((r) => setTimeout(r, 0));
+    expect(shedder.getRunning()).toBe(1);
+
+    resolve1();
+    await p;
+    expect(shedder.getRunning()).toBe(0);
+  });
+
+  it('records latency even on errors', async () => {
+    const shedder = new LoadShedder({ maxConcurrency: 10 });
+    await shedder.execute(async () => { throw new Error('fail'); }).catch(() => {});
+    expect(shedder.getAverageLatency()).toBeGreaterThanOrEqual(0);
+  });
+
+  it('throws on invalid maxConcurrency', () => {
+    expect(() => new LoadShedder({ maxConcurrency: 0 })).toThrow('positive finite integer');
+    expect(() => new LoadShedder({ maxConcurrency: -1 })).toThrow('positive finite integer');
+  });
+
+  it('throws on invalid maxQueueDepth', () => {
+    expect(() => new LoadShedder({ maxConcurrency: 1, maxQueueDepth: -1 })).toThrow('non-negative finite number');
+  });
+
+  it('throws on invalid latencyThresholdMs', () => {
+    expect(() => new LoadShedder({ maxConcurrency: 1, latencyThresholdMs: 0 })).toThrow('positive finite number');
+  });
+});
+
+describe('LoadShedError', () => {
+  it('has correct name and reason', () => {
+    const err = new LoadShedError('concurrency');
+    expect(err.name).toBe('LoadShedError');
+    expect(err.reason).toBe('concurrency');
+    expect(err.message).toContain('concurrency');
+  });
+
+  it('uses custom message', () => {
+    const err = new LoadShedError('queue', 'custom msg');
+    expect(err.message).toBe('custom msg');
+    expect(err.reason).toBe('queue');
+  });
+
+  it('supports latency reason', () => {
+    const err = new LoadShedError('latency');
+    expect(err.reason).toBe('latency');
+    expect(err.message).toContain('latency');
   });
 });

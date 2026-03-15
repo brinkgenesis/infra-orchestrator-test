@@ -1202,3 +1202,459 @@ export class PeriodicTask {
     }
   }
 }
+
+/**
+ * Tracks multiple named readiness conditions and resolves when all are met.
+ * Useful for coordinating service startup — e.g., waiting for database
+ * connections, cache warm-up, and config loading before accepting traffic.
+ */
+export class ReadinessGate {
+  private readonly conditions = new Map<string, boolean>();
+  private readonly waiters: Array<() => void> = [];
+
+  /** Registers a named condition that must be satisfied before the gate opens. */
+  register(name: string): void {
+    if (!this.conditions.has(name)) {
+      this.conditions.set(name, false);
+    }
+  }
+
+  /** Marks the named condition as satisfied. */
+  satisfy(name: string): void {
+    if (!this.conditions.has(name)) {
+      throw new Error(`Unknown readiness condition: ${name}`);
+    }
+    this.conditions.set(name, true);
+    this.checkReady();
+  }
+
+  /** Marks the named condition as unsatisfied. */
+  unsatisfy(name: string): void {
+    if (!this.conditions.has(name)) {
+      throw new Error(`Unknown readiness condition: ${name}`);
+    }
+    this.conditions.set(name, false);
+  }
+
+  /** Returns true if all registered conditions are satisfied. */
+  isReady(): boolean {
+    if (this.conditions.size === 0) return true;
+    for (const satisfied of this.conditions.values()) {
+      if (!satisfied) return false;
+    }
+    return true;
+  }
+
+  /** Returns the names of all unsatisfied conditions. */
+  pending(): string[] {
+    const result: string[] = [];
+    for (const [name, satisfied] of this.conditions) {
+      if (!satisfied) result.push(name);
+    }
+    return result;
+  }
+
+  /** Returns a promise that resolves when all conditions are satisfied. Resolves immediately if already ready. */
+  async waitUntilReady(): Promise<void> {
+    if (this.isReady()) return;
+    return new Promise<void>((resolve) => {
+      this.waiters.push(resolve);
+    });
+  }
+
+  /** Resets all conditions to unsatisfied. */
+  reset(): void {
+    for (const name of this.conditions.keys()) {
+      this.conditions.set(name, false);
+    }
+  }
+
+  private checkReady(): void {
+    if (this.isReady()) {
+      for (const resolve of this.waiters.splice(0)) {
+        resolve();
+      }
+    }
+  }
+}
+
+export interface ResourcePoolOptions<T> {
+  /** Creates a new resource instance. */
+  create: () => Promise<T>;
+  /** Destroys a resource instance when it is evicted or the pool is drained. */
+  destroy: (resource: T) => Promise<void>;
+  /** Optional health check that validates a resource before it is handed out. */
+  validate?: (resource: T) => Promise<boolean>;
+  /** Minimum number of idle resources to keep in the pool. */
+  minIdle?: number;
+  /** Maximum number of resources (idle + in-use) the pool may hold. */
+  maxSize: number;
+  /** Time in ms after which an idle resource is eligible for eviction. */
+  idleTimeoutMs?: number;
+  /** Maximum time in ms to wait for an available resource before throwing. */
+  acquireTimeoutMs?: number;
+}
+
+/**
+ * Generic async resource pool with idle eviction and optional health checks.
+ * Useful for managing database connections, HTTP clients, or any reusable
+ * resource where creation is expensive.
+ */
+export class ResourcePool<T> {
+  private readonly idle: Array<{ resource: T; idleSince: number }> = [];
+  private readonly waiters: Array<{ resolve: (resource: T) => void; reject: (err: Error) => void; timer: ReturnType<typeof setTimeout> | undefined }> = [];
+  private inUse = 0;
+  private closed = false;
+  private readonly opts: Required<Pick<ResourcePoolOptions<T>, 'create' | 'destroy' | 'maxSize'>> & ResourcePoolOptions<T>;
+
+  constructor(opts: ResourcePoolOptions<T>) {
+    if (opts.maxSize < 1 || !Number.isFinite(opts.maxSize)) {
+      throw new Error('maxSize must be a positive finite integer');
+    }
+    if (opts.minIdle !== undefined && (opts.minIdle < 0 || opts.minIdle > opts.maxSize)) {
+      throw new Error('minIdle must be between 0 and maxSize');
+    }
+    this.opts = opts;
+  }
+
+  /** Returns the number of idle resources in the pool. */
+  getIdleCount(): number {
+    return this.idle.length;
+  }
+
+  /** Returns the number of resources currently checked out. */
+  getInUseCount(): number {
+    return this.inUse;
+  }
+
+  /** Returns the total number of resources (idle + in-use). */
+  getSize(): number {
+    return this.idle.length + this.inUse;
+  }
+
+  /** Returns the number of callers waiting for a resource. */
+  getWaiterCount(): number {
+    return this.waiters.length;
+  }
+
+  /** Acquires a resource from the pool, creating one if needed or waiting if at capacity. */
+  async acquire(): Promise<T> {
+    if (this.closed) {
+      throw new Error('ResourcePool is closed');
+    }
+
+    // Try to hand out a validated idle resource
+    while (this.idle.length > 0) {
+      const entry = this.idle.shift()!;
+      if (this.opts.validate) {
+        try {
+          const ok = await this.opts.validate(entry.resource);
+          if (!ok) {
+            await this.opts.destroy(entry.resource);
+            continue;
+          }
+        } catch {
+          await this.opts.destroy(entry.resource);
+          continue;
+        }
+      }
+      this.inUse++;
+      return entry.resource;
+    }
+
+    // Room to create a new resource
+    if (this.getSize() < this.opts.maxSize) {
+      this.inUse++;
+      try {
+        return await this.opts.create();
+      } catch (err) {
+        this.inUse--;
+        throw err;
+      }
+    }
+
+    // At capacity — wait for a release
+    const timeoutMs = this.opts.acquireTimeoutMs;
+    return new Promise<T>((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | undefined = undefined;
+      if (timeoutMs !== undefined && timeoutMs > 0) {
+        timer = setTimeout(() => {
+          const idx = this.waiters.findIndex((w) => w.resolve === resolve);
+          if (idx !== -1) {
+            this.waiters.splice(idx, 1);
+          }
+          reject(new Error(`ResourcePool acquire timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }
+      this.waiters.push({ resolve, reject, timer });
+    });
+  }
+
+  /** Returns a resource to the pool, making it available for reuse. */
+  release(resource: T): void {
+    if (this.closed) {
+      this.inUse--;
+      void this.opts.destroy(resource);
+      return;
+    }
+
+    // If someone is waiting, hand it directly to them
+    const waiter = this.waiters.shift();
+    if (waiter !== undefined) {
+      if (waiter.timer !== undefined) {
+        clearTimeout(waiter.timer);
+      }
+      waiter.resolve(resource);
+      return;
+    }
+
+    this.inUse--;
+    this.idle.push({ resource, idleSince: Date.now() });
+  }
+
+  /** Evicts idle resources that have exceeded the idle timeout, respecting minIdle. */
+  evictIdle(): number {
+    const timeoutMs = this.opts.idleTimeoutMs;
+    if (timeoutMs === undefined) return 0;
+
+    const now = Date.now();
+    const minIdle = this.opts.minIdle ?? 0;
+    let evicted = 0;
+
+    while (this.idle.length > minIdle) {
+      const oldest = this.idle[0];
+      if (oldest === undefined || now - oldest.idleSince < timeoutMs) break;
+      this.idle.shift();
+      void this.opts.destroy(oldest.resource);
+      evicted++;
+    }
+
+    return evicted;
+  }
+
+  /** Closes the pool, destroying all idle resources and rejecting pending waiters. */
+  async close(): Promise<void> {
+    this.closed = true;
+
+    // Reject all waiters
+    for (const waiter of this.waiters.splice(0)) {
+      if (waiter.timer !== undefined) {
+        clearTimeout(waiter.timer);
+      }
+      waiter.reject(new Error('ResourcePool is closed'));
+    }
+
+    // Destroy all idle resources
+    const destroys = this.idle.splice(0).map((e) => this.opts.destroy(e.resource));
+    await Promise.allSettled(destroys);
+  }
+}
+
+export interface DependencyEntry {
+  service: string;
+  probe: () => Promise<void>;
+  timeoutMs?: number;
+  required?: boolean;
+}
+
+export interface DependencyCheckResult {
+  ready: boolean;
+  services: HealthStatus[];
+  requiredHealthy: boolean;
+  totalLatencyMs: number;
+}
+
+/**
+ * Registry for service dependencies with per-probe timeouts.
+ * Wraps each probe with `withTimeout` so a hanging dependency
+ * cannot block readiness checks indefinitely.
+ */
+export class DependencyChecker {
+  private readonly deps: DependencyEntry[] = [];
+  private readonly defaultTimeoutMs: number;
+
+  constructor(defaultTimeoutMs = 5000) {
+    if (defaultTimeoutMs <= 0 || !Number.isFinite(defaultTimeoutMs)) {
+      throw new Error('defaultTimeoutMs must be a positive finite number');
+    }
+    this.defaultTimeoutMs = defaultTimeoutMs;
+  }
+
+  /** Registers a dependency with an optional per-probe timeout and required flag. */
+  register(entry: DependencyEntry): this {
+    this.deps.push(entry);
+    return this;
+  }
+
+  /** Returns the names of all registered dependencies. */
+  list(): string[] {
+    return this.deps.map((d) => d.service);
+  }
+
+  /** Checks all registered dependencies concurrently, applying timeouts to each probe. */
+  async checkAll(): Promise<DependencyCheckResult> {
+    const start = Date.now();
+    const services = await Promise.all(
+      this.deps.map((dep) => {
+        const timeout = dep.timeoutMs ?? this.defaultTimeoutMs;
+        const guardedProbe = () => withTimeout(dep.probe, { timeoutMs: timeout });
+        return checkHealth(dep.service, guardedProbe);
+      }),
+    );
+
+    const requiredDeps = this.deps.filter((d) => d.required !== false);
+    const requiredHealthy = requiredDeps.every((dep) => {
+      const status = services.find((s) => s.service === dep.service);
+      return status?.healthy === true;
+    });
+
+    return {
+      ready: services.every((s) => s.healthy),
+      services,
+      requiredHealthy,
+      totalLatencyMs: Date.now() - start,
+    };
+  }
+}
+
+export interface LoadShedderOptions {
+  /** Maximum number of concurrent in-flight requests before shedding. */
+  maxConcurrency: number;
+  /** Maximum queue depth for waiting requests. Requests beyond this are shed. */
+  maxQueueDepth?: number;
+  /** Optional latency threshold in ms. If recent average latency exceeds this, new requests are shed. */
+  latencyThresholdMs?: number;
+  /** Number of recent latency samples to average over. Defaults to 20. */
+  latencySampleSize?: number;
+}
+
+/** Error thrown when the load shedder rejects a request. */
+export class LoadShedError extends Error {
+  readonly reason: 'concurrency' | 'queue' | 'latency';
+
+  constructor(reason: 'concurrency' | 'queue' | 'latency', message?: string) {
+    const defaultMessages: Record<string, string> = {
+      concurrency: 'Load shed: max concurrency exceeded',
+      queue: 'Load shed: queue depth exceeded',
+      latency: 'Load shed: latency threshold exceeded',
+    };
+    super(message ?? defaultMessages[reason] ?? 'Load shed');
+    this.name = 'LoadShedError';
+    this.reason = reason;
+  }
+}
+
+/**
+ * Rejects incoming requests early when the system is overloaded, based on
+ * concurrency limits, queue depth, and observed latency. This protects
+ * downstream services by failing fast rather than queuing unbounded work.
+ */
+export class LoadShedder {
+  private running = 0;
+  private readonly queue: Array<() => void> = [];
+  private readonly maxConcurrency: number;
+  private readonly maxQueueDepth: number;
+  private readonly latencyThresholdMs: number | undefined;
+  private readonly latencySamples: number[] = [];
+  private readonly sampleSize: number;
+  private shedCount = 0;
+  private totalCount = 0;
+
+  constructor(opts: LoadShedderOptions) {
+    if (opts.maxConcurrency < 1 || !Number.isFinite(opts.maxConcurrency)) {
+      throw new Error('maxConcurrency must be a positive finite integer');
+    }
+    if (opts.maxQueueDepth !== undefined && (opts.maxQueueDepth < 0 || !Number.isFinite(opts.maxQueueDepth))) {
+      throw new Error('maxQueueDepth must be a non-negative finite number');
+    }
+    if (opts.latencyThresholdMs !== undefined && (opts.latencyThresholdMs <= 0 || !Number.isFinite(opts.latencyThresholdMs))) {
+      throw new Error('latencyThresholdMs must be a positive finite number');
+    }
+    this.maxConcurrency = opts.maxConcurrency;
+    this.maxQueueDepth = opts.maxQueueDepth ?? 0;
+    this.latencyThresholdMs = opts.latencyThresholdMs;
+    this.sampleSize = opts.latencySampleSize ?? 20;
+  }
+
+  /** Returns the number of currently running requests. */
+  getRunning(): number {
+    return this.running;
+  }
+
+  /** Returns the current queue depth. */
+  getQueueLength(): number {
+    return this.queue.length;
+  }
+
+  /** Returns the total number of shed (rejected) requests. */
+  getShedCount(): number {
+    return this.shedCount;
+  }
+
+  /** Returns the total number of requests attempted. */
+  getTotalCount(): number {
+    return this.totalCount;
+  }
+
+  /** Returns the average latency of recent samples, or 0 if no samples. */
+  getAverageLatency(): number {
+    if (this.latencySamples.length === 0) return 0;
+    const sum = this.latencySamples.reduce((a, b) => a + b, 0);
+    return sum / this.latencySamples.length;
+  }
+
+  private recordLatency(ms: number): void {
+    this.latencySamples.push(ms);
+    if (this.latencySamples.length > this.sampleSize) {
+      this.latencySamples.shift();
+    }
+  }
+
+  /** Executes the given function, shedding (rejecting) if load thresholds are exceeded. */
+  async execute<T>(fn: () => Promise<T>): Promise<T> {
+    this.totalCount++;
+
+    // Check latency-based shedding
+    if (this.latencyThresholdMs !== undefined && this.latencySamples.length >= 3) {
+      if (this.getAverageLatency() > this.latencyThresholdMs) {
+        this.shedCount++;
+        throw new LoadShedError('latency');
+      }
+    }
+
+    // Check concurrency-based shedding
+    if (this.running >= this.maxConcurrency) {
+      if (this.queue.length >= this.maxQueueDepth) {
+        this.shedCount++;
+        throw new LoadShedError(this.maxQueueDepth > 0 ? 'queue' : 'concurrency');
+      }
+      await new Promise<void>((resolve) => {
+        this.queue.push(resolve);
+      });
+    }
+
+    this.running++;
+    const start = Date.now();
+    try {
+      const result = await fn();
+      this.recordLatency(Date.now() - start);
+      return result;
+    } catch (err) {
+      this.recordLatency(Date.now() - start);
+      throw err;
+    } finally {
+      this.running--;
+      const next = this.queue.shift();
+      if (next !== undefined) {
+        next();
+      }
+    }
+  }
+
+  /** Resets all counters and latency samples. */
+  reset(): void {
+    this.shedCount = 0;
+    this.totalCount = 0;
+    this.latencySamples.length = 0;
+  }
+}
